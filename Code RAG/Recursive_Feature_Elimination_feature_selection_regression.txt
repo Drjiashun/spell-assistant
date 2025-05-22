@@ -1,0 +1,53 @@
+# Recursive Feature Elimination
+# RFE Feature selection
+# Recursive Feature selection
+# Recursive Feature selection For Regression
+import numpy as np
+from sklearn.feature_selection import RFE
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+def rfe_feature_selection_regression(
+        X: np.ndarray,
+        y: np.ndarray,
+        n_features_to_select: int = None,
+        step = 1
+):
+    """
+    Perform Recursive Feature Elimination (RFE) for regression tasks.
+    """
+    scaler_X = StandardScaler()
+    scaler_y = StandardScaler()
+    X_scaled = scaler_X.fit_transform(X)
+    y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).ravel()
+    try:
+        estimator = LinearRegression(n_jobs=-1)  # Use all available cores
+        rfe = RFE(
+            estimator=estimator,
+            n_features_to_select=n_features_to_select,
+            step=step
+        )
+        rfe.fit(X_scaled, y_scaled)
+        selected_features = X[:, rfe.support_] if np.any(rfe.support_) else np.array([])
+        selected_indices = np.where(rfe.support_)[0]
+        ranking = rfe.ranking_
+        return selected_features, selected_indices, ranking
+    except Exception as e:
+        return np.array([]), np.array([]), np.ones(X.shape[1], dtype=int)
+n_features_to_select=50
+step=1
+selected_features, selected_indices, ranking = rfe_feature_selection_regression(
+        X, y,
+        n_features_to_select=n_features_to_select,
+        step=step
+)
+print("--- Recursive Feature Elimination (RFE) Results (Regression) ---")
+print(f"Original data shape: {X.shape}")
+print(f"Selected features shape: {selected_features.shape}")
+print(f"Selected feature indices: {selected_indices.tolist()}")
+if len(selected_indices) == 0:
+    print("Warning: No features were selected. Consider increasing n_features_to_select or adjusting step.")

@@ -1,0 +1,51 @@
+# Random Forest Regressor
+
+# Random Forest Regression
+import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X_all = np.random.randn(num_samples, spectrum_length)
+y_true_all = np.random.uniform(0, 10, num_samples)
+
+X_train, X_test, y_train, y_test_true = train_test_split(
+    X_all, y_true_all, test_size=0.3, random_state=42
+)
+n_estimators_rf = 300
+max_depth_rf = None
+min_samples_split_rf = 2
+min_samples_leaf_rf = 1
+random_state_rf = 42
+
+rf_model = RandomForestRegressor(n_estimators=n_estimators_rf,
+                                 max_depth=max_depth_rf,
+                                 min_samples_split=min_samples_split_rf,
+                                 min_samples_leaf=min_samples_leaf_rf,
+                                 random_state=random_state_rf,
+                                 n_jobs=-1)
+
+rf_model.fit(X_train, y_train)
+y_pred_train = rf_model.predict(X_train)
+y_pred_test = rf_model.predict(X_test)
+
+print(f"Shape of X_train: {X_train.shape}")
+print(f"Shape of y_train_scaled: {y_train.shape}")
+print(f"Shape of X_test: {X_test.shape}")
+print(f"Shape of y_test_scaled_true: {y_test_true.shape}")
+print(f"Shape of y_pred_test: {y_pred_test.shape}")
+
+# force import
+from sklearn.metrics import mean_squared_error, r2_score
+mse_train = mean_squared_error(y_train, y_pred_train)
+r2_train = r2_score(y_train, y_pred_train)
+print(f"  MSE: {mse_train:.4f}")
+print(f"  R^2: {r2_train:.4f}")
+
+mse_test = mean_squared_error(y_test_true, y_pred_test)
+r2_test = r2_score(y_test_true, y_pred_test)
+print(f"  MSE: {mse_test:.4f}")
+print(f"  R^2: {r2_test:.4f}")
+

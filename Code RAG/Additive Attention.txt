@@ -1,0 +1,52 @@
+# Additive Attention
+# Simple Attention
+# Additive Attention for deep learning model
+import torch
+import torch.nn as nn
+batch_size, seq_len, input_dim = 32, 200, 1
+x = torch.randn(batch_size, seq_len, input_dim)
+class AdditiveAttention(nn.Module):
+    def __init__(self, hidden_dim):
+        super(AdditiveAttention, self).__init__()
+        self.query_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.key_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.energy_proj = nn.Linear(hidden_dim, 1, bias=False)
+        self.softmax = nn.Softmax(dim=1)
+
+    def forward(self, queries, keys, values):
+
+        q = self.query_proj(queries)  # [batch_size, query_len, hidden_dim]
+        k = self.key_proj(keys)  # [batch_size, key_len, hidden_dim]
+
+        energy = torch.tanh(q.unsqueeze(2) + k.unsqueeze(1))  # [batch_size, query_len, key_len, hidden_dim]
+        energy = self.energy_proj(energy).squeeze(3)  # [batch_size, query_len, key_len]
+
+        attn_weights = self.softmax(energy)  # [batch_size, query_len, key_len]
+
+        output = torch.bmm(attn_weights, values)  # [batch_size, query_len, hidden_dim]
+        return output, attn_weights
+
+
+class SpectrumAttentionNet(nn.Module):
+    def __init__(self, input_dim=1, hidden_dim=64, seq_len=200):
+        super(SpectrumAttentionNet, self).__init__()
+        self.embedding = nn.Linear(input_dim, hidden_dim)
+        self.attention = AdditiveAttention(hidden_dim)
+        self.fc = nn.Sequential(
+            nn.Linear(hidden_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
+        )
+
+    def forward(self, x):
+
+        x = self.embedding(x)  # [batch_size, seq_len, hidden_dim]
+        output, attn_weights = self.attention(x, x, x)
+        output = output.mean(dim=1)  # [batch_size, hidden_dim]
+        output = self.fc(output)  # [batch_size, 1]
+        return output.squeeze(), attn_weights
+hidden_dim=64
+model = SpectrumAttentionNet(input_dim=input_dim, hidden_dim=hidden_dim, seq_len=seq_len)
+output, attn_weights = model(x)
+print("Output shape:", output.shape)  # [batch_size]
+print("Attention weights shape:", attn_weights.shape)  # [batch_size, seq_len, seq_len]

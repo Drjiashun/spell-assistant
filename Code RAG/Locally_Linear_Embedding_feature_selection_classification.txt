@@ -1,0 +1,109 @@
+# Locally Linear Embedding
+# LLE feature selection
+# LLE feature selection for classification tasks
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.manifold import LocallyLinearEmbedding
+from sklearn.preprocessing import StandardScaler
+import warnings
+np.random.seed(42)
+num_samples = 200 # LLE can be slow, keep samples lower for demo
+spectrum_length = 50 # Reduce features for demo
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length) * 0.5 # Base noise
+means = np.random.randn(n_classes, spectrum_length) * 0.8
+class_assignments = np.random.randint(0, n_classes, num_samples)
+for i in range(num_samples):
+    X[i, :] += means[class_assignments[i], :]
+y_clf = class_assignments # Use integer labels for classification
+
+print(f"Input data shape (X): {X.shape}")
+print(f"Target data shape (y): {y_clf.shape}")
+print(f"Class distribution: {np.unique(y_clf, return_counts=True)}")
+scaler_X = StandardScaler()
+X_scaled = scaler_X.fit_transform(X)
+print("X data standardized.")
+def lle_reconstruction_importance(X, n_neighbors=10, n_components=2, reg=1e-3, method='standard'):
+    """
+    Calculates heuristic feature importance based on LLE reconstruction error increase
+    when a feature is removed for classification tasks.
+    """
+    n_samples, n_features = X.shape
+    importance_scores = np.zeros(n_features)
+    print(f"Calculating LLE importance (Method: {method}, Neighbors: {n_neighbors}, Components: {n_components})...")
+    base_error = np.inf # Initialize high
+    try:
+        lle_base = LocallyLinearEmbedding(
+            n_neighbors=n_neighbors, n_components=n_components, reg=reg,
+            method=method, n_jobs=-1
+        )
+        lle_base.fit(X)
+        base_error = lle_base.reconstruction_error_
+        if np.isnan(base_error) or np.isinf(base_error): raise ValueError("Base LLE error is NaN/Inf.")
+        print(f"  Baseline LLE Reconstruction Error: {base_error:.4f}")
+    except Exception as e:
+        warnings.warn(f"Base LLE failed: {e}. Cannot calculate importances.", RuntimeWarning)
+        return None
+
+    for j in range(n_features):
+        X_subset = np.delete(X, j, axis=1)
+        if X_subset.shape[1] < n_components:
+            importance_scores[j] = 0; continue
+        try:
+            lle_subset = LocallyLinearEmbedding(
+                n_neighbors=n_neighbors, n_components=n_components, reg=reg,
+                method=method, n_jobs=-1
+            )
+            lle_subset.fit(X_subset)
+            subset_error = lle_subset.reconstruction_error_
+            if np.isnan(subset_error) or np.isinf(subset_error):
+                 subset_error = base_error
+                 warnings.warn(f"LLE failed for subset without feature {j}. Using base error.", RuntimeWarning)
+            # Importance = increase in error
+            importance_scores[j] = max(0, subset_error - base_error)
+        except Exception as e:
+            warnings.warn(f"LLE failed for subset without feature {j}: {e}. Assigning 0 importance.", RuntimeWarning)
+            importance_scores[j] = 0
+    return importance_scores
+
+N_NEIGHBORS = 15
+N_COMPONENTS_LLE = 5 # Should be >= n_classes generally
+LLE_METHOD = 'modified'
+LLE_REG = 1e-3
+importance_scores_lle = lle_reconstruction_importance(
+    X_scaled,
+    n_neighbors=N_NEIGHBORS,
+    n_components=N_COMPONENTS_LLE,
+    method=LLE_METHOD,
+    reg=LLE_REG
+)
+if importance_scores_lle is not None:
+    IMPORTANCE_THRESHOLD_PERCENTILE = 80 # Select top 20% (adjust as needed)
+    threshold_value = 0.0
+    selected_features_lle = []
+    if len(importance_scores_lle) > 0 and np.any(importance_scores_lle > 0): # Check if any importance > 0
+         threshold_value = np.percentile(importance_scores_lle[importance_scores_lle > 0], IMPORTANCE_THRESHOLD_PERCENTILE) # Percentile of non-zero scores
+         selected_features_lle = np.where(importance_scores_lle > threshold_value)[0]
+         # Fallback if percentile threshold is too high
+         if len(selected_features_lle) == 0 :
+             n_fallback = max(N_COMPONENTS_LLE, 5) # Select at least a few features
+             warnings.warn(f"Percentile threshold yielded 0 features. Selecting top {n_fallback} features instead.")
+             selected_features_lle = np.argsort(importance_scores_lle)[-n_fallback:]
+             threshold_value = importance_scores_lle[selected_features_lle[0]] # Threshold is min score of top N
+    else:
+        print("Warning: All importance scores are zero. Cannot select features.")
+    print("\n--- LLE Heuristic Selection Results (Classification) ---")
+    print(f"Importance Threshold: > {IMPORTANCE_THRESHOLD_PERCENTILE}th percentile approx ({threshold_value:.4e})")
+    print(f"Number of selected features: {len(selected_features_lle)}")
+    print(f"Selected feature indices (LLE): {np.sort(selected_features_lle)}")
+    plt.figure(figsize=(12, 6))
+    plt.bar(np.arange(spectrum_length), importance_scores_lle, color='purple', label='LLE Importance Score')
+    plt.axhline(threshold_value, color='k', linestyle='--', label=f'Threshold ({threshold_value:.2e})')
+    if len(selected_features_lle) > 0:
+        selected_mask = np.zeros_like(importance_scores_lle)
+        selected_mask[selected_features_lle] = importance_scores_lle[selected_features_lle]
+        plt.stem(np.arange(spectrum_length), selected_mask, linefmt='g-', markerfmt='go', basefmt=' ',
+                 label=f'Selected Features')
+    plt.xlabel('Feature Index'); plt.ylabel('Importance (Increase in Recon. Error)')
+    plt.title(f'LLE Heuristic Variable Importance'); plt.legend(); plt.grid(True, axis='y', linestyle=':')
+    plt.show()

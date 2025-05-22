@@ -1,0 +1,29 @@
+# ANOVA
+# ANOVA feature selection
+# F-regression
+# ANOVA-based Feature Selection For Regression
+import numpy as np
+from sklearn.feature_selection import f_regression
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+def anova_feature_selection(X, y, k=50):
+    """
+    Perform ANOVA for feature selection in regression tasks
+    """
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    f_values, p_values = f_regression(X_scaled, y)
+    feature_scores = list(zip(range(X.shape[1]), f_values))
+    feature_scores.sort(key=lambda x: x[1], reverse=True)
+    selected_features = [idx for idx, _ in feature_scores[:k]]
+    return selected_features, f_values
+k_features = 50
+selected_features, scores = anova_feature_selection(X, y, k=k_features)
+print(f"Selected feature indices: {selected_features}")
+print(f"F-values of top {k_features} features:")
+for idx, score in zip(selected_features, scores[selected_features]):
+    print(f"Feature {idx}: F-value = {score:.4f}")

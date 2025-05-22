@@ -1,0 +1,63 @@
+# Gradient Boosting Regressor
+# GBR
+import numpy as np
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X_all = np.random.randn(num_samples, spectrum_length)
+y_true_all = np.random.uniform(0, 10, num_samples)
+
+X_train, X_test, y_train, y_test_true = train_test_split(
+    X_all, y_true_all, test_size=0.3, random_state=42
+)
+
+n_estimators_gb = 300
+learning_rate_gb = 0.1
+max_depth_gb = 3
+min_samples_split_gb = 2
+min_samples_leaf_gb = 1
+subsample_gb = 1.0
+random_state_gb = 42
+
+gb_model = GradientBoostingRegressor(n_estimators=n_estimators_gb,
+                                     learning_rate=learning_rate_gb,
+                                     max_depth=max_depth_gb,
+                                     min_samples_split=min_samples_split_gb,
+                                     min_samples_leaf=min_samples_leaf_gb,
+                                     subsample=subsample_gb,
+                                     random_state=random_state_gb)
+
+gb_model.fit(X_train, y_train)
+y_pred_train = gb_model.predict(X_train)
+y_pred_test = gb_model.predict(X_test)
+print(f"Shape of X_train: {X_train.shape}")
+print(f"Shape of y_train_scaled: {y_train.shape}")
+print(f"Shape of X_test: {X_test.shape}")
+print(f"Shape of y_test_scaled_true: {y_test_true.shape}")
+print(f"Shape of y_pred_test: {y_pred_test.shape}")
+# force import
+from sklearn.metrics import mean_squared_error, r2_score
+mse_train = mean_squared_error(y_train, y_pred_train)
+r2_train = r2_score(y_train, y_pred_train)
+print(f"  MSE: {mse_train:.4f}")
+print(f"  R^2: {r2_train:.4f}")
+mse_test = mean_squared_error(y_test_true, y_pred_test)
+r2_test = r2_score(y_test_true, y_pred_test)
+print(f"  MSE: {mse_test:.4f}")
+print(f"  R^2: {r2_test:.4f}")
+
+# force import
+import matplotlib.pyplot as plt
+plt.figure(figsize=(8, 6))
+plt.scatter(y_test_true, y_pred_test, alpha=0.5, color='blue', label='Predictions')
+plt.plot([0, 10], [0, 10], 'r--', label='Ideal Line (y=x)')
+plt.xlabel('True Values')
+plt.ylabel('Predicted Values')
+plt.title('SVR: Predicted vs True Values (Test Set)')
+plt.legend()
+plt.grid(True)
+plt.show()
+

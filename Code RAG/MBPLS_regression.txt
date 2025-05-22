@@ -1,0 +1,239 @@
+# MBPLS
+# MB-PLS
+# Multi-Block Partial Least Squares
+# Multi-Block Partial Least Squares for Regression
+import numpy as np
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.exceptions import NotFittedError
+import warnings
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X_orig = np.random.randn(num_samples, spectrum_length)
+y_orig = np.random.uniform(0, 10, num_samples)
+class MBPLS:
+    """
+    Multi-block Partial Least Squares (MB-PLS) for spectral data regression.
+    """
+    def __init__(
+        self,
+        n_components: int = 2,
+        scale: bool = True,
+        max_iter: int = 500,
+        tol: float = 1e-6
+    ):
+        self.n_components = n_components
+        self.scale = scale
+        self.max_iter = max_iter
+        self.tol = tol
+        self.n_blocks_ = 0
+        self.scalers_X_ = []
+        self.scaler_y_ = None
+        self.block_pls_models_ = []
+        self.super_pls_model_ = None
+        self.block_importance_ = None
+        self.is_fitted_ = False
+    @staticmethod
+    def split_spectral_blocks(
+        X: np.ndarray,
+        n_blocks: int
+    ) -> list[np.ndarray]:
+        """
+        Split spectral data matrix X into a specified number of blocks along the feature axis.
+        """
+        n_samples, n_features = X.shape
+        indices = np.array_split(np.arange(n_features), n_blocks)
+        X_blocks = [X[:, idx] for idx in indices]
+        return X_blocks
+    def _calculate_block_importance(self) -> np.ndarray:
+        """
+        Calculate importance of each block based on the norm of super model weights.
+        Must be called after fitting.
+        """
+        super_weights = self.super_pls_model_.x_weights_ # Shape: (n_total_block_components, n_super_components)
+        n_super_components = super_weights.shape[1]
+        norms = []
+        offset = 0
+        for i in range(self.n_blocks_):
+            block_scores_dim = self.n_components
+            super_weights_slice = super_weights[offset : offset + block_scores_dim, :]
+            norm = np.linalg.norm(super_weights_slice)
+            norms.append(norm)
+            offset += block_scores_dim
+        total_norm = sum(norms)
+        if total_norm == 0:
+            return np.zeros(self.n_blocks_)
+        else:
+            return np.array(norms) / total_norm
+    def fit(self, X_blocks: list[np.ndarray], y: np.ndarray) -> 'MBPLS':
+        """
+        Fit the MB-PLS model to the data blocks and target variable.
+        """
+        self.n_blocks_ = len(X_blocks)
+        n_samples = X_blocks[0].shape[0]
+        X_blocks_scaled = []
+        self.scalers_X_ = []
+        if self.scale:
+            for i, X in enumerate(X_blocks):
+                scaler = StandardScaler()
+                try:
+                    X_scaled = scaler.fit_transform(X)
+                except ValueError as e:
+                    raise ValueError(f"Error scaling block {i}: {e}. Check for constant features.") from e
+                X_blocks_scaled.append(X_scaled)
+                self.scalers_X_.append(scaler)
+            self.scaler_y_ = StandardScaler()
+            y_scaled = self.scaler_y_.fit_transform(y.reshape(-1, 1)).ravel()
+        else:
+            X_blocks_scaled = X_blocks
+            self.scaler_y_ = None
+            y_scaled = y.copy() # Use a copy to avoid modifying original y
+        self.block_pls_models_ = []
+        T_blocks_concat = [] # To store scores from each block
+        try:
+            for i, X_block_scaled in enumerate(X_blocks_scaled):
+                pls = PLSRegression(
+                    n_components=self.n_components,
+                    scale=False, # Already scaled
+                    max_iter=self.max_iter,
+                    tol=self.tol
+                )
+                pls.fit(X_block_scaled, y_scaled)
+                self.block_pls_models_.append(pls)
+                T_block = pls.transform(X_block_scaled) # Or pls.x_scores_ if confident about fit data
+                T_blocks_concat.append(T_block)
+            T_super_concat = np.hstack(T_blocks_concat)
+            if T_super_concat.shape[1] == 0:
+                raise ValueError("Concatenated block scores (T_super_concat) have zero columns. Cannot fit super model.")
+            if T_super_concat.shape[1] < self.n_components:
+                warnings.warn(f"Total number of components in concatenated block scores ({T_super_concat.shape[1]}) "
+                              f"is less than n_components ({self.n_components}) for the super model. "
+                              f"Using {T_super_concat.shape[1]} components for the super model.")
+                effective_super_n_components = T_super_concat.shape[1]
+            else:
+                effective_super_n_components = self.n_components
+            self.super_pls_model_ = PLSRegression(
+                n_components=effective_super_n_components, # Use potentially reduced number
+                scale=False, # Input T_super_concat is already derived from scaled data
+                max_iter=self.max_iter,
+                tol=self.tol
+            )
+            self.super_pls_model_.fit(T_super_concat, y_scaled)
+            self.is_fitted_ = True
+            self.block_importance_ = self._calculate_block_importance()
+        except Exception as e:
+            self.is_fitted_ = False
+            self.block_pls_models_ = []
+            self.super_pls_model_ = None
+            self.block_importance_ = np.zeros(self.n_blocks_) if self.n_blocks_ > 0 else None
+            warnings.warn(f"MBPLS fitting failed: {e}. Model is not fitted.", RuntimeWarning)
+            return self # Return self even if fitting failed
+        return self
+    def transform(self, X_blocks: list[np.ndarray]) -> np.ndarray:
+        """
+        Transform new data blocks into the super score space.
+        """
+        n_samples = X_blocks[0].shape[0]
+        X_blocks_scaled = []
+        if self.scale:
+            if not self.scalers_X_ or len(self.scalers_X_) != self.n_blocks_:
+                 raise RuntimeError("Scalers for X blocks are missing or incorrect. Refit the model.")
+            for i, (X, scaler) in enumerate(zip(X_blocks, self.scalers_X_)):
+                 if X.shape[1] != scaler.mean_.shape[0]:
+                      raise ValueError(f"Block {i} has {X.shape[1]} features, but expected {scaler.mean_.shape[0]} based on fitting.")
+                 X_scaled = scaler.transform(X)
+                 X_blocks_scaled.append(X_scaled)
+        else:
+            X_blocks_scaled = X_blocks # Assume user handles scaling if self.scale=False
+        T_blocks_concat = []
+        for i, (X_block_scaled, pls_block) in enumerate(zip(X_blocks_scaled, self.block_pls_models_)):
+            try:
+                T_block = pls_block.transform(X_block_scaled)
+                if T_block.shape[1] < self.n_components:
+                     warnings.warn(f"Transforming block {i}: Produced {T_block.shape[1]} scores, less than {self.n_components}. Padding might be needed if super model expects fixed width.")
+                     if T_block.shape[1] < self.n_components:
+                         pad_width = self.n_components - T_block.shape[1]
+                         T_block = np.pad(T_block, ((0, 0), (0, pad_width)), mode='constant')
+                elif T_block.shape[1] > self.n_components:
+                     warnings.warn(f"Transforming block {i}: Produced {T_block.shape[1]} scores, more than {self.n_components}. Truncating.")
+                     T_block = T_block[:, :self.n_components]
+                T_blocks_concat.append(T_block)
+            except Exception as e:
+                raise RuntimeError(f"Error transforming data with block model {i}: {e}") from e
+        T_super_concat = np.hstack(T_blocks_concat)
+        expected_super_input_features = sum(pls.n_components for pls in self.block_pls_models_) # More robust if n_components varied
+        expected_super_input_features = self.n_blocks_ * self.n_components # Simpler if n_components is fixed per block during fit
+        if T_super_concat.shape[1] != expected_super_input_features:
+             warnings.warn(f"Concatenated scores shape is {T_super_concat.shape}, but super model might expect features={expected_super_input_features}. Check component consistency.")
+             pass
+        try:
+            super_scores = self.super_pls_model_.transform(T_super_concat)
+        except Exception as e:
+            raise RuntimeError(f"Error transforming concatenated scores with super model: {e}. Input shape was {T_super_concat.shape}.") from e
+        return super_scores
+    def predict(self, X_blocks: list[np.ndarray]) -> np.ndarray:
+        """
+        Predict continuous values using the fitted MB-PLS model.
+        """
+        super_scores = self.transform(X_blocks)
+        try:
+            y_pred_scaled = self.super_pls_model_.predict(super_scores) # Shape: (n_samples, 1) or (n_samples,)
+        except Exception as e:
+             raise RuntimeError(f"Error predicting from super scores using super model: {e}. Super scores shape was {super_scores.shape}") from e
+        y_pred = y_pred_scaled.ravel() # Ensure 1D array
+        if self.scale and self.scaler_y_:
+            try:
+                y_pred = self.scaler_y_.inverse_transform(y_pred.reshape(-1, 1)).ravel()
+            except Exception as e:
+                 raise RuntimeError(f"Error inverse scaling predictions: {e}") from e
+        return y_pred
+n_blocks = 5
+block_size = spectrum_length // n_blocks
+print("--- Splitting Data ---")
+try:
+    indices = np.array_split(np.arange(X_orig.shape[1]), n_blocks)
+    X_blocks_example = [X_orig[:, idx] for idx in indices]
+    print(f"Successfully split into {len(X_blocks_example)} blocks.")
+    print(f"Block sizes: {[X.shape[1] for X in X_blocks_example]}")
+except ValueError as e:
+    print(f"Error splitting blocks: {e}")
+    exit()
+print("\n--- Fitting MB-PLS ---")
+n_components=4
+mbpls = MBPLS(n_components=n_components, scale=True)
+mbpls.fit(X_blocks_example, y_orig)
+if mbpls.is_fitted_:
+    print("MB-PLS model fitted successfully.")
+    print(f"Number of components per model: {mbpls.n_components}")
+    print(f"Effective components in super model: {mbpls.super_pls_model_.n_components}")
+    print("\n--- Transforming Data ---")
+    try:
+        super_scores = mbpls.transform(X_blocks_example)
+        print(f"Super scores shape: {super_scores.shape}") # Expected: (num_samples, n_components)
+    except (NotFittedError, ValueError, RuntimeError) as e:
+        print(f"Error during transform: {e}")
+    print("\n--- Predicting ---")
+    try:
+        y_pred = mbpls.predict(X_blocks_example)
+        print(f"Predicted y shape: {y_pred.shape}") # Expected: (num_samples,)
+    except (NotFittedError, ValueError, RuntimeError) as e:
+        print(f"Error during prediction: {e}")
+    print("\n--- Results ---")
+    print(f"Original data shape: {X_orig.shape}")
+    print("\nBlock Importance:")
+    if mbpls.block_importance_ is not None:
+        for i, importance in enumerate(mbpls.block_importance_):
+            print(f"Block {i}: Importance Score = {importance:.4f}")
+    else:
+        print("Block importance could not be calculated.")
+
+    print("\nPrediction Performance (on training data):")
+    if 'y_pred' in locals():
+        mse = np.mean((y_orig - y_pred) ** 2)
+        print(f"Mean Squared Error: {mse:.4f}")
+    else:
+        print("Prediction was not successful.")
+
+else:
+    print("MB-PLS model fitting failed.")

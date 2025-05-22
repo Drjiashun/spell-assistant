@@ -1,0 +1,52 @@
+# Mutual Information
+# Mutual Information Feature Selection For Classification
+# Mutual Information Feature Selection
+import numpy as np
+from sklearn.feature_selection import mutual_info_classif
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+def mutual_info_feature_selection_classification(
+        X: np.ndarray,
+        y: np.ndarray,
+        threshold = 'mean',
+        min_features: int = 1
+):
+    """
+    Perform feature selection using Mutual Information for classification tasks.
+    """
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    try:
+        mi_scores = mutual_info_classif(X_scaled, y, random_state=42)
+        mi_scores = np.nan_to_num(mi_scores, nan=0.0, posinf=0.0, neginf=0.0)
+        if threshold == 'mean':
+            thresh = np.mean(mi_scores)
+        elif threshold == 'median':
+            thresh = np.median(mi_scores)
+        else:
+            thresh = float(threshold)
+        selected_indices = np.where(mi_scores >= thresh)[0]
+        if len(selected_indices) == 0:
+            selected_indices = np.argsort(mi_scores)[-min_features:]
+        selected_features = X[:, selected_indices] if len(selected_indices) > 0 else np.array([])
+        return selected_features, selected_indices, mi_scores
+    except Exception as e:
+        return np.array([]), np.array([]), np.zeros(X.shape[1])
+threshold = 0.1
+min_features=1
+selected_features, selected_indices, mi_scores = mutual_info_feature_selection_classification(
+        X, y,
+        threshold=threshold,
+        min_features=min_features
+)
+print("--- Mutual Information Feature Selection Results (Classification) ---")
+print(f"Original data shape: {X.shape}")
+print(f"Selected features shape: {selected_features.shape}")
+print(f"Selected feature indices: {selected_indices.tolist()}")
+if len(selected_indices) == 0:
+    print("Warning: No features were selected. Consider lowering threshold or increasing min_features.")

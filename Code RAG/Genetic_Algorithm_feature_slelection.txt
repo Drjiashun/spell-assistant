@@ -1,0 +1,169 @@
+# GA feature selection
+# Genetic Algorithm feature selection
+# Genetic Algorithm
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import cross_val_score, KFold
+from sklearn.preprocessing import StandardScaler
+import random
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+print(f"Input data shape (X): {X.shape}")
+print(f"Target data shape (y): {y.shape}")
+scaler_X = StandardScaler()
+X_scaled = scaler_X.fit_transform(X)
+scaler_y = StandardScaler()
+y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).ravel()
+POPULATION_SIZE = 50
+N_GENERATIONS = 30
+MUTATION_RATE = 0.02  # Probability of flipping a bit (gene)
+CROSSOVER_RATE = 0.8 # Probability of performing crossover
+N_PLS_COMPONENTS = 5 # Number of components for PLS model in fitness evaluation
+CV_FOLDS = 5        # Number of folds for cross-validation in fitness
+ELITISM_COUNT = 2   # Number of best individuals to carry over directly
+
+class GeneticAlgorithmFeatureSelection:
+    def __init__(self, X_scaled, y_scaled, n_features, model, fitness_func,
+                 pop_size, n_generations, mut_rate, cx_rate, elitism_count):
+        self.X_scaled = X_scaled
+        self.y_scaled = y_scaled
+        self.n_features = n_features
+        self.model = model # The regression model instance (e.g., PLS)
+        self.calculate_fitness = fitness_func # Function to calculate fitness
+        self.pop_size = pop_size
+        self.n_generations = n_generations
+        self.mut_rate = mut_rate
+        self.cx_rate = cx_rate
+        self.elitism_count = elitism_count
+        self.population = self._initialize_population()
+        self.fitness_cache = {} # Cache fitness results
+        self.best_chromosome = None
+        self.best_fitness = -np.inf
+        self.history = {'best_fitness': [], 'avg_fitness': []}
+    def _initialize_population(self):
+        """Creates the initial population with random chromosomes."""
+        population = []
+        for _ in range(self.pop_size):
+            chromosome = np.zeros(self.n_features, dtype=int)
+            while np.sum(chromosome) == 0: # Ensure at least one feature selected
+                 chromosome = (np.random.rand(self.n_features) > 0.7).astype(int) # Start sparse ~30%
+            population.append(chromosome)
+        return population
+    def _get_fitness(self, chromosome):
+        """Calculates or retrieves fitness for a chromosome, uses caching."""
+        chromosome_tuple = tuple(chromosome) # Use tuple as dict key
+        if chromosome_tuple in self.fitness_cache:
+            return self.fitness_cache[chromosome_tuple]
+        selected_indices = np.where(chromosome == 1)[0]
+        if len(selected_indices) == 0:
+            fitness = -np.inf # Penalize chromosomes with no features
+        else:
+            X_subset = self.X_scaled[:, selected_indices]
+            n_comp = min(self.model.n_components, X_subset.shape[1], X_subset.shape[0] // CV_FOLDS * (CV_FOLDS-1))
+            if n_comp < 1: # Need at least 1 component
+                 fitness = -np.inf
+            else:
+                 current_model = PLSRegression(n_components=n_comp)
+                 kf = KFold(n_splits=CV_FOLDS, shuffle=True, random_state=42)
+                 scores = cross_val_score(current_model, X_subset, self.y_scaled,
+                                          cv=kf, scoring='neg_root_mean_squared_error')
+                 fitness = np.mean(scores) # Average negative RMSE across folds
+                 if np.isnan(fitness): # Handle potential NaN scores from CV
+                     fitness = -np.inf
+        self.fitness_cache[chromosome_tuple] = fitness
+        return fitness
+    def _selection(self, fitnesses):
+        """Selects parents using tournament selection."""
+        selected_parents = []
+        for _ in range(self.pop_size):
+            tournament_size = 3
+            aspirants_idx = random.sample(range(self.pop_size), tournament_size)
+            aspirant_fitnesses = [fitnesses[i] for i in aspirants_idx]
+            winner_idx = aspirants_idx[np.argmax(aspirant_fitnesses)]
+            selected_parents.append(self.population[winner_idx])
+        return selected_parents
+    def _crossover(self, parent1, parent2):
+        """Performs single-point crossover."""
+        if random.random() < self.cx_rate:
+            point = random.randint(1, self.n_features - 1)
+            child1 = np.concatenate((parent1[:point], parent2[point:]))
+            child2 = np.concatenate((parent2[:point], parent1[point:]))
+            return child1, child2
+        else:
+            return parent1.copy(), parent2.copy() # No crossover
+    def _mutation(self, chromosome):
+        """Performs bit-flip mutation."""
+        for i in range(self.n_features):
+            if random.random() < self.mut_rate:
+                chromosome[i] = 1 - chromosome[i] # Flip the bit
+        if np.sum(chromosome) == 0:
+            idx_to_set = random.randint(0, self.n_features - 1)
+            chromosome[idx_to_set] = 1
+        return chromosome
+    def run(self):
+        """Executes the genetic algorithm evolution loop."""
+        print("Starting Genetic Algorithm...")
+        for generation in range(self.n_generations):
+            fitnesses = [self._get_fitness(chromo) for chromo in self.population]
+            current_best_fitness = np.max(fitnesses)
+            current_avg_fitness = np.mean([f for f in fitnesses if f > -np.inf]) # Avg of valid fitnesses
+            if current_best_fitness > self.best_fitness:
+                self.best_fitness = current_best_fitness
+                best_idx = np.argmax(fitnesses)
+                self.best_chromosome = self.population[best_idx].copy()
+            self.history['best_fitness'].append(self.best_fitness)
+            self.history['avg_fitness'].append(current_avg_fitness)
+            print(f"Gen {generation + 1}/{self.n_generations} - Best Fitness: {self.best_fitness:.4f}, Avg Fitness: {current_avg_fitness:.4f}")
+            sorted_indices = np.argsort(fitnesses)[::-1] # Indices sorted by fitness desc
+            next_population = [self.population[i].copy() for i in sorted_indices[:self.elitism_count]]
+            parents = self._selection(fitnesses)
+            while len(next_population) < self.pop_size:
+                p1, p2 = random.sample(parents, 2) # Select two parents
+                c1, c2 = self._crossover(p1, p2)
+                next_population.append(self._mutation(c1))
+                if len(next_population) < self.pop_size:
+                    next_population.append(self._mutation(c2))
+            self.population = next_population
+        print(f"Best fitness found: {self.best_fitness:.4f}")
+        print(f"Number of selected features: {np.sum(self.best_chromosome)}")
+        return self.best_chromosome, self.best_fitness
+
+pls_model_template = PLSRegression(n_components=N_PLS_COMPONENTS)
+
+ga = GeneticAlgorithmFeatureSelection(
+    X_scaled=X_scaled,
+    y_scaled=y_scaled,
+    n_features=spectrum_length,
+    model=pls_model_template,
+    fitness_func=None, # Using internal _get_fitness method
+    pop_size=POPULATION_SIZE,
+    n_generations=N_GENERATIONS,
+    mut_rate=MUTATION_RATE,
+    cx_rate=CROSSOVER_RATE,
+    elitism_count=ELITISM_COUNT
+)
+best_chromosome, best_fitness = ga.run()
+
+selected_feature_indices = np.where(best_chromosome == 1)[0]
+print(f"\nIndices of selected features ({len(selected_feature_indices)}):")
+print(selected_feature_indices)
+plt.figure(figsize=(10, 5))
+plt.plot(ga.history['best_fitness'], label='Best Fitness (-RMSECV)')
+plt.plot(ga.history['avg_fitness'], label='Average Fitness (-RMSECV)', linestyle='--')
+plt.xlabel('Generation')
+plt.ylabel('Fitness (-RMSECV)')
+plt.title('GA Fitness Evolution')
+plt.legend()
+plt.grid(True)
+plt.show()
+plt.figure(figsize=(12, 3))
+plt.stem(np.arange(spectrum_length), best_chromosome, linefmt='-', markerfmt=' ', basefmt=" ")
+plt.xlabel('Variable Index')
+plt.ylabel('Selected (1) / Not Selected (0)')
+plt.title('Selected Variables by Genetic Algorithm')
+plt.ylim(-0.1, 1.1)
+plt.show()

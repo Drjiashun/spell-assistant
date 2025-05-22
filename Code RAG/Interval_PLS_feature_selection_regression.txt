@@ -1,0 +1,103 @@
+# Interval PLS feature selection for regression tasks
+# Interval PLS
+# iPLS
+# Interval Partial Least Squares
+import numpy as np
+import math
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import KFold
+from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+def calculate_rmsecv(X: np.ndarray, y: np.ndarray, n_comp: int, cv_folds: int) -> float:
+    """
+    Calculate RMSECV for given features using cross-validation.
+    """
+    if X.shape[1] == 0 or n_comp <= 0:
+        return np.inf
+    max_possible_comp = min(X.shape[1], X.shape[0] - math.ceil(X.shape[0] / cv_folds))
+    if max_possible_comp <= 0:
+        return np.inf
+    actual_n_comp = min(n_comp, max_possible_comp)
+    try:
+        model = PLSRegression(n_components=actual_n_comp)
+        cv = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
+        y_pred = np.zeros_like(y)
+        for train_idx, test_idx in cv.split(X):
+            X_train, X_test = X[train_idx], X[test_idx]
+            y_train = y[train_idx]
+            model.fit(X_train, y_train)
+            y_pred[test_idx] = model.predict(X_test).ravel()
+        return np.sqrt(mean_squared_error(y, y_pred))
+    except Exception as e:
+        return np.inf
+def ipls_feature_selection(
+        X: np.ndarray,
+        y: np.ndarray,
+        n_intervals: int = 10,
+        max_pls_components: int = 5,
+        cv_folds: int = 5
+):
+    """
+    Interval PLS (iPLS) for feature selection in regression tasks.
+    """
+    if X.shape[0] != y.shape[0]:
+        raise ValueError("X and y must have same number of samples")
+    if not np.all(np.isfinite(X)) or not np.all(np.isfinite(y)):
+        raise ValueError("X or y contains non-finite values")
+    if n_intervals <= 0 or n_intervals > X.shape[1]:
+        raise ValueError("n_intervals must be positive and not exceed number of features")
+    if cv_folds < 2:
+        raise ValueError("cv_folds must be at least 2")
+    scaler_X = StandardScaler()
+    scaler_y = StandardScaler()
+    X_scaled = scaler_X.fit_transform(X)
+    y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).ravel()
+    n_features = X.shape[1]
+    interval_size = math.ceil(n_features / n_intervals)
+    intervals = [
+        (i * interval_size, min((i + 1) * interval_size, n_features))
+        for i in range(n_intervals) if i * interval_size < n_features
+    ]
+    interval_rmsecv = []
+    interval_indices = []
+    print(f"Total features: {n_features}")
+    print(f"Number of intervals: {len(intervals)}")
+    print(f"Approximate interval size: {interval_size}\n")
+    for i, (start_idx, end_idx) in enumerate(intervals):
+        if start_idx >= end_idx:
+            continue
+        X_interval = X_scaled[:, start_idx:end_idx]
+        rmsecv = calculate_rmsecv(X_interval, y_scaled, max_pls_components, cv_folds)
+        interval_rmsecv.append(rmsecv)
+        interval_indices.append((start_idx, end_idx))
+    global_rmsecv = calculate_rmsecv(X_scaled, y_scaled, max_pls_components, cv_folds)
+    print(f"\nGlobal PLS Model: RMSECV = {global_rmsecv:.4f}")
+    if not interval_rmsecv:
+        return np.array([]), np.array([]), np.inf, [], []
+    best_interval_idx = np.argmin(interval_rmsecv)
+    best_rmsecv = interval_rmsecv[best_interval_idx]
+    best_start, best_end = interval_indices[best_interval_idx]
+    selected_indices = np.arange(best_start, best_end)
+    selected_features = X[:, selected_indices]
+    return selected_features, selected_indices, best_rmsecv, interval_rmsecv, interval_indices
+n_intervals = 15
+max_pls_components = 5
+cv_folds=5
+selected_features, selected_indices, best_rmsecv, interval_rmsecv, interval_indices = ipls_feature_selection(
+        X, y,
+        n_intervals=n_intervals,
+        max_pls_components=max_pls_components,
+        cv_folds=cv_folds
+)
+print("\n--- iPLS Results ---")
+print(f"Best interval index: {np.argmin(interval_rmsecv) + 1}")
+print(f"Best interval RMSECV: {best_rmsecv:.4f}")
+print(f"Indices of selected interval: {interval_indices[np.argmin(interval_rmsecv)][0]} to "f"{interval_indices[np.argmin(interval_rmsecv)][1] - 1}")
+print(f"Original data shape: {X.shape}")
+print(f"Selected features shape: {selected_features.shape}")
+print(f"Selected feature indices: {selected_indices.tolist()}")

@@ -1,0 +1,234 @@
+# Artificial Neural Network
+# ANN
+# ANN Classifier
+# Artificial Neural Network Classifier
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import TensorDataset, DataLoader
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score, average_precision_score, roc_curve, precision_recall_curve
+from sklearn.preprocessing import StandardScaler
+from sklearn.datasets import make_classification
+from sklearn.metrics import ConfusionMatrixDisplay
+import matplotlib.pyplot as plt
+np.random.seed(42)
+num_samples = 1000
+n_features = 200
+n_classes = 3
+X_all = np.random.randn(num_samples, n_features)
+y_all_labels = np.random.randint(0, n_classes, num_samples)
+unique_classes = np.unique(y_all_labels)
+target_names = [f'Class_{i}' for i in unique_classes]
+scaler = StandardScaler()
+X_all_scaled = scaler.fit_transform(X_all)
+X_temp, X_test_np, y_temp, y_test_np = train_test_split(
+    X_all_scaled, y_all_labels, test_size=0.2, random_state=42, stratify=y_all_labels
+)
+X_train_np, X_val_np, y_train_np, y_val_np = train_test_split(
+    X_temp, y_temp, test_size=0.2, random_state=42, stratify=y_temp
+)
+X_train = torch.tensor(X_train_np, dtype=torch.float32)
+y_train = torch.tensor(y_train_np, dtype=torch.long)
+X_val = torch.tensor(X_val_np, dtype=torch.float32)
+y_val = torch.tensor(y_val_np, dtype=torch.long)
+X_test = torch.tensor(X_test_np, dtype=torch.float32)
+y_test = torch.tensor(y_test_np, dtype=torch.long)
+
+batch_size = 32
+train_dataset = TensorDataset(X_train, y_train)
+val_dataset = TensorDataset(X_val, y_val)
+test_dataset = TensorDataset(X_test, y_test)
+train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=False)
+test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False)
+
+class MLPClassifier(nn.Module):
+    def __init__(self, input_size, hidden_size1, hidden_size2, num_classes):
+        super(MLPClassifier, self).__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size1)
+        self.bn1 = nn.BatchNorm1d(hidden_size1)
+        self.relu1 = nn.ReLU()
+        self.fc2 = nn.Linear(hidden_size1, hidden_size2)
+        self.bn2 = nn.BatchNorm1d(hidden_size2)
+        self.relu2 = nn.ReLU()
+        self.dropout = nn.Dropout(0.1)
+        self.fc3 = nn.Linear(hidden_size2, num_classes)
+
+    def forward(self, x):
+        out = self.fc1(x)
+        out = self.bn1(out)
+        out = self.relu1(out)
+        out = self.fc2(out)
+        out = self.bn2(out)
+        out = self.relu2(out)
+        out = self.dropout(out)
+        out = self.fc3(out)
+        return out
+
+input_dim = n_features
+hidden_dim1 = 128
+hidden_dim2 = 64
+output_dim = n_classes
+learning_rate = 0.001
+num_epochs = 1000
+patience = 20
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Using device: {device}")
+model = MLPClassifier(input_dim, hidden_dim1, hidden_dim2, output_dim).to(device)
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+
+best_val_loss = float('inf')
+epochs_no_improve = 0
+train_losses = []
+val_losses = []
+print("\nStarting Training...")
+for epoch in range(num_epochs):
+    model.train()
+    train_loss = 0.0
+    for i, (inputs, targets) in enumerate(train_loader):
+        inputs = inputs.to(device)
+        targets = targets.to(device)
+        outputs = model(inputs)
+        loss = criterion(outputs, targets)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        train_loss += loss.item()
+    avg_train_loss = train_loss / len(train_loader)
+    train_losses.append(avg_train_loss)
+    model.eval()
+    val_loss = 0.0
+    with torch.no_grad():
+        for inputs, targets in val_loader:
+            inputs = inputs.to(device)
+            targets = targets.to(device)
+            outputs = model(inputs)
+            loss = criterion(outputs, targets)
+            val_loss += loss.item()
+
+    avg_val_loss = val_loss / len(val_loader)
+    val_losses.append(avg_val_loss)
+    scheduler.step(avg_val_loss)
+
+    if avg_val_loss < best_val_loss:
+        best_val_loss = avg_val_loss
+        epochs_no_improve = 0
+    else:
+        epochs_no_improve += 1
+        if epochs_no_improve >= patience:
+            print(f"Early stopping triggered after {epoch + 1} epochs")
+            break
+
+    if (epoch + 1) % 10 == 0:
+        print(f'Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}')
+
+print("Training Finished.")
+model.eval()
+
+all_preds = []
+all_labels = []
+all_probs = []
+test_loss = 0
+with torch.no_grad():
+    for batch_data, batch_labels in test_loader:
+        batch_data, batch_labels = batch_data.to(device), batch_labels.to(device)
+        predictions = model(batch_data)
+        loss = criterion(predictions, batch_labels)
+        test_loss += loss.item()
+        probs = torch.softmax(predictions, dim=1)
+        preds = torch.argmax(probs, dim=1)
+        all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(batch_labels.cpu().numpy())
+        all_probs.extend(probs.cpu().numpy())
+test_loss /= len(test_loader)
+all_preds = np.array(all_preds)
+all_labels = np.array(all_labels)
+all_probs = np.array(all_probs)
+# import
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, average_precision_score, roc_curve, precision_recall_curve
+accuracy = (all_preds == all_labels).mean() * 100
+auc_scores = []
+for i in range(n_classes):
+    true_binary = (all_labels == i).astype(int)
+    prob_class = all_probs[:, i]
+    auc = roc_auc_score(true_binary, prob_class)
+    auc_scores.append(auc)
+mean_auc = np.mean(auc_scores)
+
+aupr_scores = []
+for i in range(n_classes):
+    true_binary = (all_labels == i).astype(int)
+    prob_class = all_probs[:, i]
+    aupr = average_precision_score(true_binary, prob_class)
+    aupr_scores.append(aupr)
+mean_aupr = np.mean(aupr_scores)
+
+conf_matrix = confusion_matrix(all_labels, all_preds, labels=unique_classes)
+class_report = classification_report(all_labels, all_preds, labels=unique_classes, target_names=target_names, zero_division=0)
+print(f"\nShape of X_train: {X_train.shape}")
+print(f"Shape of y_train: {y_train.shape}")
+print(f"Shape of X_val: {X_val.shape}")
+print(f"Shape of y_val: {y_val.shape}")
+print(f"Shape of X_test: {X_test.shape}")
+print(f"Shape of y_test: {y_test.shape}")
+print(f"Shape of y_pred_np: {all_preds.shape}")
+
+print("\nPrediction Performance on Test Set:")
+print(f"  Test Loss (CrossEntropy): {test_loss:.4f}")
+print(f"  Test Accuracy: {accuracy:.2f}%")
+print(f"  Mean AUC (One-vs-Rest): {mean_auc:.4f}")
+print(f"  Mean AUPR (One-vs-Rest): {mean_aupr:.4f}")
+print("\nConfusion Matrix:")
+print(conf_matrix)
+print("\nClassification Report:")
+print(class_report)
+# import
+from sklearn.metrics import ConfusionMatrixDisplay
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(10, 5))
+plt.plot(train_losses, label='Train Loss')
+plt.plot(val_losses, label='Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Training and Validation Loss')
+plt.legend()
+plt.grid()
+plt.show()
+
+cm = confusion_matrix(all_labels, all_preds)
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=target_names)
+disp.plot(cmap='Blues')
+plt.title('Confusion Matrix')
+plt.show()
+
+plt.figure(figsize=(12, 5))
+plt.subplot(1, 2, 1)
+for i in range(n_classes):
+    true_binary = (all_labels == i).astype(int)
+    fpr, tpr, _ = roc_curve(true_binary, all_probs[:, i])
+    plt.plot(fpr, tpr, label=f'{target_names[i]} (AUC = {auc_scores[i]:.2f})')
+plt.plot([0, 1], [0, 1], 'k--')
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC Curve')
+plt.legend()
+plt.grid()
+
+plt.subplot(1, 2, 2)
+for i in range(n_classes):
+    true_binary = (all_labels == i).astype(int)
+    precision, recall, _ = precision_recall_curve(true_binary, all_probs[:, i])
+    plt.plot(recall, precision, label=f'{target_names[i]} (AUPR = {aupr_scores[i]:.2f})')
+plt.xlabel('Recall')
+plt.ylabel('Precision')
+plt.title('Precision-Recall Curve')
+plt.legend()
+plt.grid()
+plt.tight_layout()
+plt.show()

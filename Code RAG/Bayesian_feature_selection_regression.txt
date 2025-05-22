@@ -1,0 +1,102 @@
+# Bayesian feature selection
+# Bayesian
+# Bayesian feature selection for regression
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
+from scipy.stats import invgamma
+import warnings
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+
+print(f"Data Shapes: X={X.shape}, y={y.shape}")
+scaler_X = StandardScaler()
+X_scaled = scaler_X.fit_transform(X)
+scaler_y = StandardScaler()
+y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).flatten()
+print("Data standardized.")
+def bayesian_spike_slab(X, y, n_iter=1000, burn_in=500, sigma2_init=1.0, tau2=0.01, p0=0.1):
+    """
+    Bayesian variable selection using Spike-and-Slab with Gibbs sampling for regression.
+    """
+    n_samples, n_features = X.shape
+    if tau2 <= 0: raise ValueError("Spike variance tau2 must be positive.")
+    gamma = (np.random.rand(n_features) < p0).astype(int) # Start with random inclusion based on p0
+    beta = np.zeros(n_features)
+    sigma2 = sigma2_init
+    gamma_sum = np.zeros(n_features) # Accumulator for inclusion
+    beta_samples_all = np.zeros((n_iter - burn_in, n_features))
+    XtX = X.T @ X
+    Xty = X.T @ y
+    print("Starting Gibbs Sampling...")
+    for t in range(n_iter):
+        slab_precision = 1.0 / sigma2
+        spike_precision = 1.0 / tau2
+        diag_prec = np.where(gamma == 1, slab_precision, spike_precision)
+        D_inv = np.diag(diag_prec)
+        try:
+            Sigma_beta_inv = XtX / sigma2 + D_inv
+            Sigma_beta = np.linalg.inv(Sigma_beta_inv + 1e-8 * np.eye(n_features))
+            Sigma_beta = (Sigma_beta + Sigma_beta.T) / 2
+            mu_beta = Sigma_beta @ Xty / sigma2
+            beta = np.random.multivariate_normal(mu_beta, Sigma_beta)
+        except np.linalg.LinAlgError:
+            warnings.warn(f"Iter {t+1}: Sigma_beta calculation failed (singular matrix). Skipping beta update.", RuntimeWarning)
+        log_p0_prior = np.log(p0 + 1e-10)       # Prior log odds for inclusion
+        log_p1_prior = np.log(1 - p0 + 1e-10)   # Prior log odds for exclusion
+        log_L_ratio = 0.5 * np.log(tau2 / sigma2) + (beta**2 / 2) * (1/tau2 - 1/sigma2)
+        log_odds = log_p0_prior - log_p1_prior + log_L_ratio
+        prob_gamma_eq_1 = 1 / (1 + np.exp(-log_odds))
+        gamma = (np.random.rand(n_features) < prob_gamma_eq_1).astype(int)
+        beta_included = beta[gamma == 1]
+        resid = y - X @ beta # Full residual using current beta
+        shape_sigma2 = (n_samples + np.sum(gamma)) / 2.0 # n + number of included betas
+        scale_sigma2 = 0.5 * (resid @ resid + np.sum(beta_included**2))
+        if scale_sigma2 > 1e-10: # Avoid division by zero if scale is too small
+           sigma2 = invgamma.rvs(shape_sigma2, scale=scale_sigma2)
+        else:
+           sigma2 = invgamma.rvs(shape_sigma2, scale=1e-10) # Sample with tiny scale
+           warnings.warn(f"Iter {t+1}: Scale for sigma2 was near zero. Check model.", RuntimeWarning)
+        sigma2 = max(sigma2, 1e-8) # Ensure variance doesn't become zero or negative
+        if t >= burn_in:
+            idx = t - burn_in
+            gamma_sum += gamma
+            beta_samples_all[idx] = beta
+    inclusion_probs = gamma_sum / (n_iter - burn_in)
+    beta_samples_mean = np.mean(beta_samples_all, axis=0)
+    return inclusion_probs, beta_samples_mean, beta_samples_all
+
+N_ITER = 2000  # Increased iterations
+BURN_IN = 1000 # Increased burn-in
+TAU2 = 1e-4   # Spike variance (make it smaller relative to sigma2)
+P0 = 0.1      # Prior inclusion probability
+try:
+    inclusion_probs, beta_mean, beta_samples = bayesian_spike_slab(
+        X_scaled, y_scaled, n_iter=N_ITER, burn_in=BURN_IN, tau2=TAU2, p0=P0
+    )
+    threshold = 0.5 # Typical threshold for posterior inclusion probability
+    selected_features = np.where(inclusion_probs > threshold)[0]
+
+    print("\n--- Bayesian Variable Selection Results ---")
+    print(f"Spike variance (tau2): {TAU2}")
+    print(f"Final error variance estimate (sigma2): {np.mean(beta_samples[:, 0])}") # Use last sigma2? Maybe mean beta variance? Needs context. Last sample value is often used.
+    print(f"Number of selected features (Prob > {threshold}): {len(selected_features)}")
+    print(f"Selected feature indices: {selected_features}")
+
+    # Visualize inclusion probabilities
+    plt.figure(figsize=(12, 6))
+    plt.stem(np.arange(spectrum_length), inclusion_probs, linefmt='b-', markerfmt='bo', basefmt=' ', label='Inclusion Probability')
+    plt.axhline(threshold, color='k', linestyle='--', label=f'Threshold ({threshold:.2f})')
+    # Highlight selected and true features
+    if len(selected_features) > 0:
+        plt.stem(selected_features, inclusion_probs[selected_features], linefmt='g-', markerfmt='go', basefmt=' ', label='Selected (Prob > Thr)')
+    plt.xlabel('Feature Index'); plt.ylabel('Posterior Inclusion Probability')
+    plt.title('Bayesian Variable Selection Results'); plt.legend(); plt.grid(True, linestyle=':')
+    plt.ylim(-0.1, 1.1); plt.show()
+except Exception as e:
+    print(f"\nAn error occurred during Bayesian variable selection: {e}")
+    import traceback
+    traceback.print_exc()

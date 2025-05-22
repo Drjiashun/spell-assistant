@@ -1,0 +1,29 @@
+# IV feature selection
+# Influence Variable method
+# Influence Variable method feature selection
+import numpy as np
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import cross_val_score
+np.random.seed(42)
+num_samples = 200
+num_features = 50
+X = np.random.randn(num_samples, num_features)
+y = np.random.randn(num_samples)
+def calculate_rmsecv(model, X, y, cv=5):
+    neg_mse = cross_val_score(model, X, y, cv=cv, scoring='neg_mean_squared_error')
+    mse = -neg_mse
+    return np.mean(np.sqrt(mse))  # RMSECV
+def iv_variable_selection(X, y, n_components=5, cv=5):
+    n_features = X.shape[1]
+    pls = PLSRegression(n_components=n_components)
+    base_rmsecv = calculate_rmsecv(pls, X, y, cv=cv)
+    print(f"original RMSECV: {base_rmsecv:.4f}")
+    influence_scores = np.zeros(n_features)
+    for i in range(n_features):
+        X_temp = np.delete(X, i, axis=1)
+        rmsecv_temp = calculate_rmsecv(pls, X_temp, y, cv=cv)
+        influence_scores[i] = rmsecv_temp - base_rmsecv
+    important_variables = np.where(influence_scores > 0)[0]
+    return important_variables, influence_scores
+selected_vars, influence_scores = iv_variable_selection(X, y, n_components=5, cv=5)
+print("\nSelected feature indices：", selected_vars)

@@ -1,0 +1,59 @@
+# Elastic Net Feature Selection For Classification
+# Elastic Net Feature Selection
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+from sklearn.feature_selection import SelectFromModel
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+def elastic_net_feature_selection(
+        X: np.ndarray,
+        y: np.ndarray,
+        C: float = 0.1,
+        l1_ratio: float = 0.5,
+        max_iter: int = 500,
+        threshold = 'mean'
+):
+    """
+    Perform feature selection for classification tasks using Elastic Net regularization.
+    """
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    try:
+        estimator = LogisticRegression(
+            penalty='elasticnet',
+            C=C,
+            l1_ratio=l1_ratio,
+            solver='saga',
+            max_iter=max_iter,
+            random_state=42,
+            n_jobs=-1
+        )
+        selector = SelectFromModel(estimator=estimator, threshold=threshold)
+        selector.fit(X_scaled, y)
+        selected_indices = selector.get_support(indices=True)
+        coef = selector.estimator_.coef_.ravel() if len(np.unique(y)) == 2 else selector.estimator_.coef_[0]
+        return selected_indices, coef
+    except Exception as e:
+        return np.array([]), np.array([]), np.zeros(X.shape[1])
+
+# Perform Elastic Net feature selection
+C=0.1
+l1_ratio=0.5
+max_iter=500
+selected_indices, coef = elastic_net_feature_selection(
+        X, y,
+        C=C,
+        l1_ratio=l1_ratio,
+        max_iter=max_iter,
+        threshold='mean'
+)
+print("--- Elastic Net Feature Selection Results ---")
+print(f"Original data shape: {X.shape}")
+print(f"Selected feature indices: {selected_indices.tolist()}")
+if len(selected_indices) == 0:
+    print("Warning: No features were selected. Consider increasing C or adjusting threshold.")

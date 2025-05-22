@@ -1,0 +1,59 @@
+# Inverse Least Squares
+# ILS
+
+import numpy as np
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
+np.random.seed(42)
+
+n_features = 50
+n_components = 3
+n_samples_total = 80 
+
+
+K = np.zeros((n_features, n_components))
+x_feat = np.linspace(0, 10, n_features)
+K[:, 0] = np.exp(-((x_feat - 2)**2) / (2 * 0.8**2))
+K[:, 1] = np.exp(-((x_feat - 5)**2) / (2 * 1.2**2)) * 0.9
+K[:, 2] = np.exp(-((x_feat - 7.5)**2) / (2 * 1.0**2)) * 0.7
+
+
+C_true_all = np.random.rand(n_samples_total, n_components) * np.array([[1, 1.5, 0.8]])
+
+A_true_all = C_true_all @ K.T
+noise_level = 0.015
+noise = np.random.randn(n_samples_total, n_features) * noise_level
+A_measured_all = A_true_all + noise
+
+
+A_cal, A_pred, C_cal, C_pred_true = train_test_split(
+    A_measured_all, C_true_all, test_size=0.3, random_state=42
+)
+
+n_samples_cal = A_cal.shape[0]
+n_samples_pred = A_pred.shape[0]
+
+if n_samples_cal < n_features:
+    print(f"Warning: Number of calibration samples ({n_samples_cal}) < number of features ({n_features}). ILS may be ill-conditioned.")
+
+
+P, residuals, rank, s = np.linalg.lstsq(A_cal, C_cal, rcond=None)
+
+C_pred = A_pred @ P
+
+
+print(f"Shape of A_cal (Calibration Spectra): {A_cal.shape}")
+print(f"Shape of C_cal (Calibration Concentrations): {C_cal.shape}")
+print(f"Shape of P (Calibration Coefficients): {P.shape}")
+print(f"Shape of A_pred (Prediction Spectra): {A_pred.shape}")
+print(f"Shape of C_pred_true (True Prediction Concentrations): {C_pred_true.shape}")
+print(f"Shape of C_pred (Predicted Concentrations): {C_pred.shape}")
+
+print("\nPrediction Performance on Test Set:")
+for i in range(n_components):
+    mse = mean_squared_error(C_pred_true[:, i], C_pred[:, i])
+    r2 = r2_score(C_pred_true[:, i], C_pred[:, i])
+    print(f"  Component {i+1}:")
+    print(f"    RMSE: {np.sqrt(mse):.4f}")
+    print(f"    R^2:  {r2:.4f}")
+

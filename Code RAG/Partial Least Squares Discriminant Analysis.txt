@@ -1,0 +1,80 @@
+# Partial Least Squares Discriminant Analysis
+# PLS-DA
+# PLSDA
+
+import numpy as np
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.preprocessing import StandardScaler, LabelBinarizer
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+
+if n_classes < 2:
+    raise ValueError("Number of classes must be at least 2.")
+if num_samples < n_classes:
+    raise ValueError("Number of samples must be greater than number of classes.")
+
+scaler = StandardScaler()
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.3, random_state=42, stratify=y
+)
+X_train_scaled = scaler.fit_transform(X_train)  # Fit on training data only
+X_test_scaled = scaler.transform(X_test)       # Transform test data
+
+# Label binarization
+lb = LabelBinarizer()
+Y_train_dummy = lb.fit_transform(y_train)
+Y_test_dummy = lb.transform(y_test)
+
+n_components_plsda = min(5, X_train_scaled.shape[1], X_train_scaled.shape[0] - 1)  # Limit n_components
+plsda = PLSRegression(n_components=n_components_plsda, scale=False)
+
+cv_scores = cross_val_score(plsda, X_train_scaled, Y_train_dummy, cv=5, scoring='r2')
+plsda.fit(X_train_scaled, Y_train_dummy)
+Y_train_pred_dummy = plsda.predict(X_train_scaled)
+Y_test_pred_dummy = plsda.predict(X_test_scaled)
+y_train_pred = lb.classes_[np.argmax(Y_train_pred_dummy, axis=1)]
+y_test_pred = lb.classes_[np.argmax(Y_test_pred_dummy, axis=1)]
+# force import
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+train_accuracy = accuracy_score(y_train, y_train_pred)
+test_accuracy = accuracy_score(y_test, y_test_pred)
+train_conf_matrix = confusion_matrix(y_train, y_train_pred, labels=lb.classes_)
+test_conf_matrix = confusion_matrix(y_test, y_test_pred, labels=lb.classes_)
+train_class_report = classification_report(
+    y_train, y_train_pred, labels=lb.classes_, target_names=[str(c) for c in lb.classes_], zero_division=0
+)
+test_class_report = classification_report(
+    y_test, y_test_pred, labels=lb.classes_, target_names=[str(c) for c in lb.classes_], zero_division=0
+)
+
+# Output
+print(f"Shape of X_train: {X_train_scaled.shape}")
+print(f"Shape of Y_train_dummy: {Y_train_dummy.shape}")
+print(f"Shape of X_test: {X_test_scaled.shape}")
+print(f"Shape of Y_test_dummy: {Y_test_dummy.shape}")
+print(f"Shape of Y_train_pred_dummy: {Y_train_pred_dummy.shape}")
+print(f"Shape of Y_test_pred_dummy: {Y_test_pred_dummy.shape}")
+print(f"\nClasses: {lb.classes_}")
+print(f"\nPLS-DA Model Parameters:")
+print(f"  Number of Components: {n_components_plsda}")
+print(f"  Cross-Validation R² (mean ± std): {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
+
+print("\nPrediction Performance on Training Set:")
+print(f"  Accuracy: {train_accuracy:.4f}")
+print("\nTraining Confusion Matrix:")
+print(train_conf_matrix)
+print("\nTraining Classification Report:")
+print(train_class_report)
+
+print("\nPrediction Performance on Test Set:")
+print(f"  Accuracy: {test_accuracy:.4f}")
+print("\nTest Confusion Matrix:")
+print(test_conf_matrix)
+print("\nTest Classification Report:")
+print(test_class_report)

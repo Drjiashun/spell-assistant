@@ -1,0 +1,151 @@
+# MSCA
+# Multi-level Simultaneous Component Analysis
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+
+np.random.seed(42)
+N_FEAT = 150          # Features
+N_GRP = 8             # Groups
+N_SAMPLES_PER_GRP = 15 # Samples per group
+N_SAMPLES_TOT = N_GRP * N_SAMPLES_PER_GRP
+
+def msca_short_detailed_output(X, DesMat):
+    """Performs condensed MSCA calculation but returns a detailed dictionary."""
+    print("Performing MSCA decomposition...")
+    K, J = X.shape; I = DesMat.shape[1]
+    Ki = DesMat.sum(axis=0).astype(int)
+    offset = X.mean(axis=0); Xoff = X - offset
+    Xind = np.zeros((I, J))
+    for i in range(I):
+        sample_indices = np.where(DesMat[:, i] == 1)[0]
+        if len(sample_indices) > 0:
+            Xind[i, :] = Xoff[sample_indices].mean(axis=0)
+    valid_grp = Ki > 0
+    scb, ldb, peb = np.array([]), np.array([]), np.array([]) # Initialize
+    n_comp_between_pca = 0
+    if np.any(valid_grp):
+        sqrt_Ki = np.sqrt(Ki[valid_grp])
+        W = np.diag(sqrt_Ki)
+        W_inv = np.diag(1.0 / sqrt_Ki)
+        pca_b = PCA()
+        Xind_valid = Xind[valid_grp,:]
+        try:
+            scb_w = pca_b.fit_transform(W @ Xind_valid) # Fit/transform weighted means
+            n_comp_between_pca = pca_b.n_components_
+            scb_full = np.zeros((I, n_comp_between_pca)) # Initialize scores for all groups
+            scb_full[valid_grp,:] = W_inv @ scb_w # Un-weight scores for valid groups
+            scb = scb_full
+            ldb = pca_b.components_.T; peb = pca_b.explained_variance_ratio_ * 100
+        except Exception as e:
+             print(f"Error during Between PCA: {e}. Skipping between analysis.")
+    Xwit = Xoff - DesMat @ Xind # Calculate deviations
+    scw, ldw, pew = np.array([]), np.array([]), np.array([]) # Initialize
+    n_comp_within_pca = 0
+    try:
+        pca_w = PCA()
+        scw = pca_w.fit_transform(Xwit) # Fit/transform deviations
+        n_comp_within_pca = pca_w.n_components_
+        ldw = pca_w.components_.T; pew = pca_w.explained_variance_ratio_ * 100
+    except Exception as e:
+         print(f"Error during Within PCA: {e}. Skipping within analysis.")
+
+    Model = {
+        'dimensions': {'I_groups': I, 'J_features': J, 'K_total_samples': K, 'Ki_samples_per_group': Ki},
+        'offset': offset,
+        'between': {'group_means': Xind, 'scores': scb, 'loadings': ldb, 'perc_explained': peb, 'n_components': n_comp_between_pca},
+        'within': {'deviations': Xwit, 'scores': scw, 'loadings': ldw, 'perc_explained': pew, 'n_components': n_comp_within_pca}
+    }
+    return Model
+def plot_msca_results(Model, feature_axis, group_ids, sample_ids_within_group):
+    """Plots key results from the MSCA Model (Detailed version)."""
+    print("Plotting MSCA results...")
+    ming = ['First', 'Second', 'Third', 'Fourth']
+    has_between = Model['between']['scores'].size > 0 and Model['between']['n_components'] > 0
+    has_within = Model['within']['scores'].size > 0 and Model['within']['n_components'] > 0
+    if not has_between:
+        print("No between-group components available to plot.")
+    else:
+        n_comp_between_avail = Model['between']['n_components']
+        n_comp_plot = min(4, n_comp_between_avail)
+        # --- Between Model Plots ---
+        fig_b, axes_b = plt.subplots(n_comp_plot, 2, figsize=(12, 4 * n_comp_plot), squeeze=False)
+        fig_b.suptitle('Between-Group Variation Analysis', fontsize=16, y=1.02)
+        for i in range(n_comp_plot):
+            # Loadings plot
+            ax = axes_b[i, 0]
+            ax.plot(feature_axis, Model['between']['loadings'][:, i])
+            ax.set_xlabel('Feature Index', fontsize=12)
+            ax.set_ylabel(f'{ming[i]} Loading', fontsize=12)
+            ax.tick_params(labelsize=11)
+            ax.grid(True, linestyle=':')
+            ax = axes_b[i, 1]
+            x = group_ids # Group indices [0, 1, ..., n_groups-1]
+            y = Model['between']['scores'][:, i] # Shape (n_groups,)
+            if x.shape[0] != y.shape[0]:
+                 print(f"Warning: Mismatch in between scores plot dimensions for PC{i+1}. x:{x.shape}, y:{y.shape}")
+                 continue # Skip plot if shapes mismatch
+            ax.plot(x, y, 'o', markersize=8, markerfacecolor='b', label='Scores')
+            r_squared = np.nan # Default if fit fails
+            if len(x) > 1: # Need at least 2 points for polyfit
+                try:
+                    coefficients = np.polyfit(x, y, 1)
+                    polynomial = np.poly1d(coefficients)
+                    y_fit = polynomial(x)
+                    y_mean = np.mean(y)
+                    ss_tot = np.sum((y - y_mean) ** 2)
+                    ss_res = np.sum((y - y_fit) ** 2)
+                    if ss_tot > 1e-9:
+                         r_squared = 1 - (ss_res / ss_tot)
+                    else:
+                         r_squared = 1.0 if ss_res < 1e-9 else 0.0 # Handle zero variance case
+                    ax.plot(x, y_fit, 'r-', label=f'R² = {r_squared:.3f}')
+                except Exception as e:
+                    print(f"Could not fit regression line for between component {i+1}: {e}")
+            ax.set_xlabel('Group Index', fontsize=12)
+            ax.set_ylabel(f'{ming[i]} Score (R²={r_squared:.3f})', fontsize=12)
+            if len(x) > 0: ax.set_xlim([min(x) - 1, max(x) + 1])
+            ax.tick_params(labelsize=11)
+            ax.legend(fontsize=10)
+            ax.grid(True, linestyle=':')
+        plt.tight_layout(rect=[0, 0, 1, 0.98]) # Adjust layout to prevent title overlap
+        plt.show()
+    if not has_within:
+         print("No within-group components available to plot.")
+    else:
+        n_comp_within_avail = Model['within']['n_components']
+        if n_comp_within_avail > 0:
+            plt.figure(figsize=(8, 6))
+            plt.plot(sample_ids_within_group, Model['within']['scores'][:, 0], 'o', markersize=5, alpha=0.6)
+            plt.xlabel('Sample Index within Group', fontsize=14)
+            plt.ylabel('First Within Score', fontsize=14)
+            plt.title('Within-Group Variation (Scores of First Component)', fontsize=16)
+            if len(sample_ids_within_group) > 0: plt.xlim([min(sample_ids_within_group) - 1, max(sample_ids_within_group) + 1])
+            plt.grid(True, which='both', linestyle=':')
+            plt.tick_params(labelsize=12)
+            plt.show()
+        else:
+             print("No within-group components available to plot (PCA might have failed or data had no variance).")
+
+X_rand = np.random.randn(N_SAMPLES_TOT, N_FEAT) # Use randn for standard normal
+DesignMat_rand = np.zeros((N_SAMPLES_TOT, N_GRP))
+for i in range(N_GRP):
+    idx = slice(i * N_SAMPLES_PER_GRP, (i + 1) * N_SAMPLES_PER_GRP)
+    DesignMat_rand[idx, i] = 1
+
+group_ids_rand = np.arange(N_GRP)
+sample_ids_wg_rand = np.tile(np.arange(N_SAMPLES_PER_GRP), N_GRP)
+feature_axis_rand = np.arange(N_FEAT) # Simple feature index axis
+X_scaled = StandardScaler().fit_transform(X_rand)
+print("Data scaled.")
+Model_results = msca_short_detailed_output(X_scaled, DesignMat_rand)
+print("\n--- MSCA Output Summary ---")
+print(f"Between scores shape: {Model_results['between']['scores'].shape}")
+print(f"Between loadings shape: {Model_results['between']['loadings'].shape}")
+print(f"Within scores shape: {Model_results['within']['scores'].shape}")
+print(f"Within loadings shape: {Model_results['within']['loadings'].shape}")
+print(f"Between explained variance (%): {Model_results['between']['perc_explained'][:4]}")
+print(f"Within explained variance (%): {Model_results['within']['perc_explained'][:4]}")
+# 5. Visualize Results
+plot_msca_results(Model_results, feature_axis_rand, group_ids_rand, sample_ids_wg_rand)

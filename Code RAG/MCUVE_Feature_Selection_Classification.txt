@@ -1,0 +1,99 @@
+# MC-UVE
+# MCUVE
+# Monte Carlo Uninformative Variable Elimination For Classification tasks
+# MCUVE Feature Selection For Classification
+# MCUVE Feature Selection
+import numpy as np
+from matplotlib import pyplot as plt
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+def calculate_stability_score(
+        coefs: np.ndarray,
+        selection_counts: np.ndarray,
+        min_count: int = 1
+) -> np.ndarray:
+    """
+    Calculate stability scores for each feature based on PLS-DA coefficients for classification tasks.
+    """
+    mean_coefs = np.sum(coefs, axis=0) / np.maximum(selection_counts, min_count)
+    mask = coefs != 0
+    coefs_filtered = np.ma.masked_equal(coefs * mask, 0)
+    std_coefs = np.ma.std(coefs_filtered, axis=0)
+    std_coefs = np.where(std_coefs.mask, 1e-10, std_coefs)  # Avoid division by zero
+    stability_scores = mean_coefs / std_coefs
+    stability_scores = np.nan_to_num(stability_scores, nan=0.0, posinf=0.0, neginf=0.0)
+    return stability_scores
+def mcuve_feature_selection_classification(
+        X: np.ndarray,
+        y: np.ndarray,
+        n_components: int = 4,
+        n_subsets: int = 3000,
+        subset_ratio: float = 0.5,
+        n_features_to_select: int = 50,
+        random_state: int = 42
+):
+    """
+    Perform Monte Carlo Uninformative Variable Elimination (MC-UVE) feature selection for classification tasks.
+    """
+    n_samples, n_features = X.shape
+    n_subset_features = max(1, int(n_features * subset_ratio))
+    scaler_X = StandardScaler()
+    X_scaled = scaler_X.fit_transform(X)
+    le = LabelEncoder()
+    y_encoded = le.fit_transform(y)
+    y_pls = y_encoded.astype(float) if len(le.classes_) == 2 else np.eye(len(le.classes_))[y_encoded]
+    coefs = np.zeros((n_subsets, n_features))
+    selection_counts = np.zeros(n_features)
+    rng = np.random.RandomState(random_state)
+    try:
+        for i in range(n_subsets):
+            selected_features = rng.choice(n_features, size=n_subset_features, replace=False)
+            X_subset = X_scaled[:, selected_features]
+            pls = PLSRegression(n_components=n_components)
+            pls.fit(X_subset, y_pls)
+            coef = pls.coef_.ravel() if len(le.classes_) == 2 else pls.coef_[:, 0]
+            coefs[i, selected_features] = coef
+            selection_counts[selected_features] += 1
+        stability_scores = calculate_stability_score(coefs, selection_counts)
+        selected_indices = np.argsort(np.abs(stability_scores))[-n_features_to_select:]
+        selected_features = X[:, selected_indices] if len(selected_indices) > 0 else np.array([[]])
+        return selected_indices, stability_scores
+    except Exception as e:
+        return np.array([]), np.zeros(n_features)
+n_components=5
+n_subsets=3000
+subset_ratio=0.5
+n_features_to_select=50
+selected_indices, stability_scores = mcuve_feature_selection_classification(
+        X, y,
+        n_components=n_components,
+        n_subsets=n_subsets,
+        subset_ratio=subset_ratio,
+        n_features_to_select=n_features_to_select,
+        random_state=42
+)
+X_selected = X[:, selected_indices.tolist()]
+print(X_selected.shape)
+print("--- MC-UVE Feature Selection Results (Classification) ---")
+print(f"Original data shape: {X.shape}")
+print(f"Selected features shape: {selected_features.shape}")
+print(f"Selected feature indices: {selected_indices.tolist()}")
+if len(selected_indices) == 0:
+    print("Warning: No features were selected. Consider increasing n_features_to_select or adjusting parameters.")
+# Visualization
+plt.figure(figsize=(12, 6))
+feature_indices = np.arange(len(stability_scores))
+plt.bar(feature_indices, np.abs(stability_scores), color='lightgray', label='Stability Scores')
+plt.bar(selected_indices, np.abs(stability_scores[selected_indices]), color='blue', label='Selected Features')
+plt.xlabel('Feature Index')
+plt.ylabel('Absolute Stability Score')
+plt.title('MC-UVE Feature Selection: Stability Scores')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.show()

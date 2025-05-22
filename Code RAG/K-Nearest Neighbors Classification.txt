@@ -1,0 +1,67 @@
+# K-Nearest Neighbors Classification
+# kNN-Classification
+# kNN
+import numpy as np
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X_all = np.random.randn(num_samples, spectrum_length)
+y_all_labels = np.random.randint(0, n_classes, num_samples)
+unique_classes = np.unique(y_all_labels)
+scaler = StandardScaler()
+X_all_scaled = scaler.fit_transform(X_all)
+X_train, X_test, y_train_labels, y_test_labels = train_test_split(
+    X_all_scaled, y_all_labels, test_size=0.3, random_state=42, stratify=y_all_labels
+)
+n_neighbors_k = 7
+weights_knn = 'distance'
+metric_knn = 'minkowski'
+knn_model = KNeighborsClassifier(n_neighbors=n_neighbors_k,
+                                 weights=weights_knn,
+                                 metric=metric_knn)
+knn_model.fit(X_train, y_train_labels)
+
+y_train_pred_labels = knn_model.predict(X_train)  # Training set predictions
+y_test_pred_labels = knn_model.predict(X_test)    # Test set predictions
+# force import
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+train_accuracy = accuracy_score(y_train_labels, y_train_pred_labels)
+train_conf_matrix = confusion_matrix(y_train_labels, y_train_pred_labels, labels=unique_classes)
+train_class_report = classification_report(
+    y_train_labels, y_train_pred_labels, labels=unique_classes,
+    target_names=[str(c) for c in unique_classes], zero_division=0
+)
+
+test_accuracy = accuracy_score(y_test_labels, y_test_pred_labels)
+test_conf_matrix = confusion_matrix(y_test_labels, y_test_pred_labels, labels=unique_classes)
+test_class_report = classification_report(
+    y_test_labels, y_test_pred_labels, labels=unique_classes,
+    target_names=[str(c) for c in unique_classes], zero_division=0
+)
+
+# Output
+print(f"Shape of X_train: {X_train.shape}")
+print(f"Shape of y_train_labels: {y_train_labels.shape}")
+print(f"Shape of X_test: {X_test.shape}")
+print(f"Shape of y_test_labels (True): {y_test_labels.shape}")
+print(f"Shape of y_train_pred_labels (Predicted): {y_train_pred_labels.shape}")
+print(f"Shape of y_test_pred_labels (Predicted): {y_test_pred_labels.shape}")
+
+print("\nPrediction Performance on Training Set:")
+print(f"  Accuracy: {train_accuracy:.4f}")
+print("\nTraining Confusion Matrix:")
+print(train_conf_matrix)
+print("\nTraining Classification Report:")
+print(train_class_report)
+
+print("\nPrediction Performance on Test Set:")
+print(f"  Accuracy: {test_accuracy:.4f}")
+print("\nTest Confusion Matrix:")
+print(test_conf_matrix)
+print("\nTest Classification Report:")
+print(test_class_report)

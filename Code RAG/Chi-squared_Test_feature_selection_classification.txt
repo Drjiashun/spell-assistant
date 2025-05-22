@@ -1,0 +1,45 @@
+# Chi-squared Test
+# Chi squared Test
+# Chi-squared Test Feature Selection For Classification Task
+import numpy as np
+from sklearn.feature_selection import chi2
+from sklearn.preprocessing import MinMaxScaler
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+def chi2_feature_selection(
+        X: np.ndarray,
+        y: np.ndarray,
+        p_threshold: float = 0.05
+):
+    """
+    Perform Chi-squared test for feature selection in classification tasks.
+    """
+    if np.any(X < 0):
+        scaler = MinMaxScaler()
+        X_scaled = scaler.fit_transform(X)
+    else:
+        X_scaled = X.copy()
+    try:
+        chi2_scores, p_values = chi2(X_scaled, y)
+        p_values = np.nan_to_num(p_values, nan=1.0, posinf=1.0, neginf=1.0)
+        chi2_scores = np.nan_to_num(chi2_scores, nan=0.0, posinf=0.0, neginf=0.0)
+        selected_indices = np.where(p_values < p_threshold)[0]
+        selected_features = X[:, selected_indices] if len(selected_indices) > 0 else np.array([])
+        return selected_features, selected_indices, chi2_scores, p_values
+    except Exception as e:
+        return np.array([]), np.array([]), np.zeros(X.shape[1]), np.ones(X.shape[1])
+X = np.abs(X)
+threshold=0.05
+selected_features, selected_indices, chi2_scores, p_values = chi2_feature_selection(
+        X, y, p_threshold=threshold
+)
+print("--- Chi-squared Test Results ---")
+print(f"Original data shape: {X.shape}")
+print(f"Selected features shape: {selected_features.shape}")
+print(f"Selected feature indices: {selected_indices.tolist()}")
+if len(selected_indices) == 0:
+    print("Warning: No features were selected. Consider adjusting p_threshold.")

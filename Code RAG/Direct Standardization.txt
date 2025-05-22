@@ -1,0 +1,110 @@
+# Direct Standardization
+# DS Model Transfer
+# Direct Standardization Model Transfer
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error
+
+n_wavelengths = 50       # Number of spectral points (wavelengths)
+n_samples_transfer = 40  # Number of transfer samples (measured on both devices)
+n_samples_new = 20       # Number of new samples measured only on the slave device
+print(f"Number of wavelengths: {n_wavelengths}")
+print(f"Number of transfer samples: {n_samples_transfer}")
+print(f"Number of new samples: {n_samples_new}")
+X_master_transfer = np.random.rand(n_samples_transfer, n_wavelengths)
+X_slave_transfer = np.random.rand(n_samples_transfer, n_wavelengths)
+X_slave_new = np.random.rand(n_samples_new, n_wavelengths)
+Y_transfer = np.random.rand(n_samples_transfer, 1) * 100 # Scale Y for example
+Y_new_hypothetical = np.random.rand(n_samples_new, 1) * 100
+print(f"\nMaster transfer spectra shape (X_master_transfer): {X_master_transfer.shape}")
+print(f"Slave transfer spectra shape (X_slave_transfer): {X_slave_transfer.shape}")
+print(f"Slave new spectra shape (X_slave_new): {X_slave_new.shape}")
+print(f"Transfer target variable shape (Y_transfer): {Y_transfer.shape}")
+print(f"Hypothetical new target shape (Y_new_hypothetical): {Y_new_hypothetical.shape}")
+
+def direct_standardization(X_master, X_slave):
+    """
+    Calculates the Direct Standardization (DS) transformation matrix F.
+    """
+    print("\nCalculating DS transformation matrix F...")
+    F = np.linalg.pinv(X_slave) @ X_master
+    print(f"Calculated F matrix shape: {F.shape}")
+    if F.shape[0] != X_slave.shape[1] or F.shape[1] != X_master.shape[1]:
+         print(f"Warning: F matrix shape ({F.shape}) might not be as expected!")
+    return F
+
+# Calculate the transformation matrix F using the transfer samples
+F_ds = direct_standardization(X_master_transfer, X_slave_transfer)
+print("\nApplying DS transformation to new slave data...")
+X_slave_corrected = X_slave_new @ F_ds
+print(f"Original new slave data shape (X_slave_new): {X_slave_new.shape}")
+print(f"Corrected new slave data shape (X_slave_corrected): {X_slave_corrected.shape}")
+print("\nTraining prediction model on Master transfer data...")
+model_master = LinearRegression()
+model_master.fit(X_master_transfer, Y_transfer)
+print("Master model trained.")
+print("\nPredicting results for new samples using the trained Master model...")
+Y_pred_original = model_master.predict(X_slave_new)
+Y_pred_corrected = model_master.predict(X_slave_corrected)
+print(f"Predictions on original slave data shape: {Y_pred_original.shape}")
+print(f"Predictions on corrected slave data shape: {Y_pred_corrected.shape}")
+mse_original = mean_squared_error(Y_new_hypothetical, Y_pred_original)
+mse_corrected = mean_squared_error(Y_new_hypothetical, Y_pred_corrected)
+print("\n--- Prediction Performance (MSE vs Hypothetical Y) ---")
+print(f"MSE using Original Slave Data: {mse_original:.4f}")
+print(f"MSE using DS Corrected Slave Data: {mse_corrected:.4f}")
+
+plt.figure(figsize=(12, 10))
+wavelengths = np.arange(n_wavelengths)
+
+# Plot 1: Example Transfer Spectra
+plt.subplot(2, 2, 1)
+sample_idx_transfer = 0
+plt.plot(wavelengths, X_master_transfer[sample_idx_transfer, :], label=f'Master Transfer Sample {sample_idx_transfer+1}')
+plt.plot(wavelengths, X_slave_transfer[sample_idx_transfer, :], label=f'Slave Transfer Sample {sample_idx_transfer+1}', linestyle='--')
+plt.title('Transfer Sample Spectra Example')
+plt.xlabel('Wavelength Index')
+plt.ylabel('Random Intensity')
+plt.legend()
+
+# Plot 2: Example New Spectra Correction
+plt.subplot(2, 2, 2)
+sample_idx_new = 0
+plt.plot(wavelengths, X_slave_new[sample_idx_new, :], label=f'Original Slave New Sample {sample_idx_new+1}')
+plt.plot(wavelengths, X_slave_corrected[sample_idx_new, :], label=f'Corrected Slave New Sample {sample_idx_new+1} (DS)', linewidth=2)
+# Optional: Plot hypothetical master spectrum for this new sample if you had generated one
+# plt.plot(wavelengths, X_master_new_hypothetical[sample_idx_new, :], label=f'Hypothetical Master New Sample {sample_idx_new+1}', linestyle=':', color='gray')
+plt.title('New Sample: Original vs. Corrected (DS)')
+plt.xlabel('Wavelength Index')
+plt.ylabel('Random Intensity')
+plt.legend()
+
+# Plot 3: Prediction Comparison
+plt.subplot(2, 2, 3)
+sample_indices = np.arange(n_samples_new)
+plt.scatter(sample_indices, Y_new_hypothetical, label='Hypothetical True Y', marker='o', alpha=0.7)
+plt.scatter(sample_indices, Y_pred_original, label='Predicted Y (Original Slave)', marker='x', alpha=0.7)
+plt.scatter(sample_indices, Y_pred_corrected, label='Predicted Y (DS Corrected)', marker='+', alpha=0.9, s=80)
+plt.title('Prediction Comparison for New Samples')
+plt.xlabel('New Sample Index')
+plt.ylabel('Predicted/Hypothetical Y Value')
+plt.legend()
+plt.grid(True, linestyle='--', alpha=0.6)
+
+# Plot 4: Predicted vs. Hypothetical Scatter Plot
+plt.subplot(2, 2, 4)
+min_val = min(Y_new_hypothetical.min(), Y_pred_original.min(), Y_pred_corrected.min())
+max_val = max(Y_new_hypothetical.max(), Y_pred_original.max(), Y_pred_corrected.max())
+plt.plot([min_val, max_val], [min_val, max_val], 'k--', label='Ideal (y=x)') # Identity line
+plt.scatter(Y_new_hypothetical, Y_pred_original, label=f'Original (MSE={mse_original:.2f})', marker='x', alpha=0.7)
+plt.scatter(Y_new_hypothetical, Y_pred_corrected, label=f'DS Corrected (MSE={mse_corrected:.2f})', marker='+', alpha=0.9, s=80)
+plt.title('Predicted vs. Hypothetical Y')
+plt.xlabel('Hypothetical True Y')
+plt.ylabel('Predicted Y')
+plt.legend()
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.axis('equal') # Ensure x and y axes have the same scale for better visual comparison
+plt.tight_layout()
+plt.show()
+print("\nCode execution finished.")

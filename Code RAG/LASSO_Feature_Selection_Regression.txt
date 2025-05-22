@@ -1,0 +1,78 @@
+# LASSO Feature Selection
+# L1 Regularization
+# L1-Regularization
+# LASSO Feature Selection For Regression
+import numpy as np
+from sklearn.linear_model import Lasso
+from sklearn.feature_selection import SelectFromModel
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+def lasso_feature_selection_regression(
+        X: np.ndarray,
+        y: np.ndarray,
+        alpha: float = 0.1,
+        min_features: int = 20,
+        max_features: int = None,
+        random_state: int = 42
+):
+    """
+    Perform feature selection using LASSO (L1-regularized Linear Regression) for regression tasks.
+    """
+    scaler_X = StandardScaler()
+    scaler_y = StandardScaler()
+    X_scaled = scaler_X.fit_transform(X)
+    y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).ravel()
+    current_alpha = alpha
+    alpha_reduction_factor = 0.5  # Reduce alpha by this factor if too few features are selected
+    max_attempts = 10  # Maximum number of iterations to tune alpha
+
+    for attempt in range(max_attempts):
+        try:
+            estimator = Lasso(
+                alpha=current_alpha,
+                random_state=random_state,
+                max_iter=5000
+            )
+            estimator.fit(X_scaled, y_scaled)
+            selector = SelectFromModel(
+                estimator=estimator,
+                max_features=max_features,
+                prefit=True
+            )
+            selected_indices = selector.get_support(indices=True)
+
+            # Check if the number of selected features meets the minimum requirement
+            if len(selected_indices) >= min_features:
+                selected_features = X[:, selected_indices]
+                coefficients = estimator.coef_
+                return selected_indices, coefficients
+            else:
+                # Reduce alpha to select more features
+                current_alpha *= alpha_reduction_factor
+        except Exception as e:
+            return np.array([]), np.zeros(X.shape[1])
+
+    # If minimum features are not achieved, return the last attempt's results
+    selected_features = X[:, selected_indices] if len(selected_indices) > 0 else np.array([])
+    coefficients = estimator.coef_ if len(selected_indices) > 0 else np.zeros(X.shape[1])
+    return selected_indices, coefficients
+alpha=0.1
+min_features = 20
+selected_indices, coefficients = lasso_feature_selection_regression(
+        X, y,
+        alpha=alpha,
+        min_features = min_features,
+        max_features=None,
+    
+        random_state=42
+)
+print("--- LASSO Feature Selection Results ---")
+print(f"Original data shape: {X.shape}")
+print(f"Selected features shape: {selected_features.shape}")
+print(f"Selected feature indices: {selected_indices.tolist()}")
+if len(selected_indices) == 0:
+    print("Warning: No features were selected. Consider decreasing alpha or increasing max_features.")

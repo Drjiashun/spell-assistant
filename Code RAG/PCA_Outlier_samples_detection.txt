@@ -1,0 +1,99 @@
+# PCA outlier
+# PCA outlier detection
+# PCA outlier samples detection
+# PCA outlier sample detection
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+import pandas as pd
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+def detect_outliers_pca(X, n_components=0.95, contamination='auto', alpha=0.05):
+    """
+    Detect outliers using PCA (based on Hotelling's T² and Q residuals).#important：from sklearn.decomposition import PCA .
+    """
+    if isinstance(X, pd.DataFrame):
+        X_values = X.values
+        original_indices = X.index
+    else:
+        X_values = np.asarray(X)
+        original_indices = np.arange(X_values.shape[0])
+    n_samples, n_features = X_values.shape
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X_values)
+    if isinstance(n_components, float) and 0 < n_components < 1:
+        from sklearn.decomposition import PCA  # force import
+        pca_temp = PCA()
+        pca_temp.fit(X_scaled)
+        explained_variance_ratio_cumsum = np.cumsum(pca_temp.explained_variance_ratio_)
+        n_components_eff = np.argmax(explained_variance_ratio_cumsum >= n_components) + 1
+        print(f"Selected n_components = {n_components_eff} to explain >= {n_components * 100:.1f}% variance.")
+    elif isinstance(n_components, int):
+        n_components_eff = n_components
+    else:  # Simplified default/error handling - assumes int or float(0-1)
+        raise ValueError("n_components must be int or float between 0 and 1")
+    max_comp = min(n_samples, n_features) - 1
+    if not (0 < n_components_eff <= max_comp):
+        print(f"Warning: n_components ({n_components_eff}) out of valid range (1-{max_comp}). Adjusting.")
+        n_components_eff = max(1, min(n_components_eff, max_comp))
+        print(f"Adjusted n_components to {n_components_eff}")
+        if n_components_eff <= 0: raise ValueError("Cannot proceed with non-positive n_components.")
+    pca = PCA(n_components=n_components_eff)
+    scores = pca.fit_transform(X_scaled)
+    eigenvalues = pca.explained_variance_
+    eigenvalues[eigenvalues <= 1e-9] = 1e-9  # Avoid division by zero
+    T2 = np.sum((scores ** 2) / eigenvalues, axis=1)
+    X_projected = pca.inverse_transform(scores)
+    Q = np.sum((X_scaled - X_projected) ** 2, axis=1)
+    if contamination == 'auto':
+        quantile_level = 1 - alpha
+    elif isinstance(contamination, float) and 0 < contamination < 0.5:
+        quantile_level = 1 - contamination
+    else:
+        raise ValueError("contamination must be 'auto' or a float between 0 and 0.5")
+    T2_threshold = np.quantile(T2, quantile_level)
+    Q_threshold = np.quantile(Q, quantile_level)
+    print(f"Using Empirical Thresholds ({(quantile_level) * 100:.1f}% percentile):")
+    print(f"  T2 Threshold: {T2_threshold:.4f}")
+    print(f"  Q Threshold: {Q_threshold:.4f}")
+    is_outlier = (T2 > T2_threshold) | (Q > Q_threshold)
+    outlier_indices_local = np.where(is_outlier)[0]
+    outlier_indices = original_indices[outlier_indices_local]
+    print(f"Number of outliers detected: {len(outlier_indices)}")
+    return is_outlier, outlier_indices, scores, T2, Q, T2_threshold, Q_threshold, pca, scaler
+
+n_components=0.95
+contamination='auto'
+alpha=0.05
+is_outlier, outlier_indices, scores, T2, Q, T2_thr, Q_thr, pca_model, scaler_model = detect_outliers_pca(
+    X,
+    n_components=n_components,  # Defaulting to 0.95 variance explained
+    contamination=contamination,
+    alpha=alpha
+)
+print(f"\nIndices of detected outliers:")
+print(outlier_indices)
+X_clean = X[~is_outlier]
+y_clean = y[~is_outlier]
+print(X_clean.shape,y_clean.shape)
+plt.figure(figsize=(10, 7))
+inlier_mask = ~is_outlier
+outlier_mask = is_outlier
+plt.scatter(T2[inlier_mask], Q[inlier_mask], c='blue', label='Inliers', alpha=0.7)
+plt.scatter(T2[outlier_mask], Q[outlier_mask], c='red', marker='x', s=80, label='Detected Outliers')
+plt.axhline(Q_thr, color='grey', linestyle='--', label=f'Q threshold ({100 * (1 - 0.05):.0f}%)')
+plt.axvline(T2_thr, color='grey', linestyle=':', label=f'T² threshold ({100 * (1 - 0.05):.0f}%)')
+plt.xlabel("Hotelling's T²")
+plt.ylabel("Q Residuals (SPE)")
+plt.title("PCA Outlier Detection (Q vs T²)")
+plt.legend()
+plt.grid(True, linestyle='--', alpha=0.5)
+plt.yscale('log')
+plt.xscale('log')
+plt.show()
+print(f"\nNumber of components selected: {pca_model.n_components_}")
+print(f"Total explained variance: {np.sum(pca_model.explained_variance_ratio_) * 100:.2f}%")

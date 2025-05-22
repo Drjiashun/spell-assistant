@@ -1,0 +1,165 @@
+# probability density
+# probability density outlier sample detection
+# Gaussian Mixture outlier sample detection
+# Gaussian Mixture
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.mixture import GaussianMixture
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+import pandas as pd
+from tqdm import tqdm
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+def detect_outliers_gmm(X, contamination=0.05, n_components_range=range(1, 8),
+                        use_pca=True, n_pca_components=0.95,
+                        covariance_type='full', random_state=42):
+    """
+    Detect outliers using Gaussian Mixture Models (GMM) based on probability density.
+    """
+    if isinstance(X, pd.DataFrame):
+        X_values = X.values
+        original_indices = X.index
+    else:
+        X_values = np.asarray(X)
+        original_indices = np.arange(X_values.shape[0])
+    n_samples = X_values.shape[0]
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X_values)
+    pca_model = None
+    X_processed = X_scaled
+    if use_pca:
+        print("Applying PCA...")
+        pca = PCA(n_components=n_pca_components, random_state=random_state)
+        X_processed = pca.fit_transform(X_scaled)
+        pca_model = pca
+        actual_pca_components = X_processed.shape[1]
+        print(f"PCA applied. Data reduced to {actual_pca_components} components.")
+        if actual_pca_components == 0:
+            raise ValueError("PCA resulted in 0 components. Check data or n_pca_components.")
+        max_gmm_comps = min(n_samples, actual_pca_components if covariance_type == 'full' else n_samples)
+        if isinstance(n_components_range, (int, np.integer)):  # If single component specified
+            if n_components_range > max_gmm_comps:
+                print(
+                    f"Warning: Specified n_components ({n_components_range}) > max reasonable ({max_gmm_comps}). Adjusting.")
+                n_components_range = max_gmm_comps
+        else:  # If range specified
+            n_components_range = range(min(n_components_range), min(max(n_components_range) + 1, max_gmm_comps + 1))
+            if not n_components_range:  # Check if range became empty
+                n_components_range = range(1, max_gmm_comps + 1)  # Fallback to default range up to max
+                print(f"Warning: Adjusted n_components_range to {n_components_range} based on data dimensions.")
+    best_gmm = None
+    lowest_bic = np.inf
+    if isinstance(n_components_range, (int, np.integer)):  # Single number of components provided
+        print(f"Fitting GMM with fixed n_components = {n_components_range}...")
+        gmm = GaussianMixture(n_components=n_components_range,
+                              covariance_type=covariance_type,
+                              random_state=random_state)
+        try:
+            gmm.fit(X_processed)
+            best_gmm = gmm
+        except ValueError as e:
+            raise ValueError(
+                f"GMM fitting failed with n_components={n_components_range}. Error: {e}. Consider adjusting covariance_type or n_components.")
+    else:  # Range of components provided, use BIC for selection
+        print(f"Finding best n_components in {list(n_components_range)} using BIC...")
+        bics = []
+        possible_n_components = list(n_components_range)
+        if not possible_n_components:
+            raise ValueError("n_components_range resulted in an empty list after adjustments.")
+        for n_components in tqdm(possible_n_components):
+            gmm = GaussianMixture(n_components=n_components,
+                                  covariance_type=covariance_type,
+                                  random_state=random_state)
+            try:
+                gmm.fit(X_processed)
+                bic = gmm.bic(X_processed)
+                bics.append(bic)
+                if bic < lowest_bic:
+                    lowest_bic = bic
+                    best_gmm = gmm
+            except ValueError as e:
+                print(f"Warning: GMM fitting failed for n_components={n_components}. Error: {e}. Skipping this value.")
+                bics.append(np.inf)  # Assign infinite BIC if fitting fails
+        if best_gmm is None:
+            raise RuntimeError("GMM fitting failed for all tested n_components values.")
+        print(f"Best n_components based on BIC: {best_gmm.n_components}")
+        plt.figure(figsize=(8, 4))
+        plt.plot(possible_n_components, bics, marker='o')
+        plt.xlabel("Number of components")
+        plt.ylabel("BIC Score")
+        plt.title("GMM BIC Score vs. Number of Components")
+        plt.grid(True)
+        plt.scatter(best_gmm.n_components, lowest_bic, c='red', s=100, label=f'Best ({best_gmm.n_components})',
+                    zorder=5)
+        plt.legend()
+        plt.show()
+    print("Calculating log-likelihood scores...")
+    log_likelihoods = best_gmm.score_samples(X_processed)
+    threshold = np.quantile(log_likelihoods, contamination)
+    print(f"Log-likelihood threshold at {contamination * 100:.1f} percentile: {threshold:.4f}")
+    outlier_mask = log_likelihoods < threshold
+    outlier_indices_local = np.where(outlier_mask)[0]
+    outlier_indices = original_indices[outlier_indices_local]
+    print(f"Number of potential outliers detected: {len(outlier_indices)}")
+    return outlier_indices, log_likelihoods, best_gmm, pca_model, scaler
+contamination = 0.05
+n_components_range = range(1, 6)
+use_pca = True
+n_pca_components = 5
+covariance_type = 'full'
+
+outlier_idxs, log_likelihoods, gmm_model, pca_mod, scaler_mod = detect_outliers_gmm(
+        X,
+        contamination=contamination,  # Expect ~5% outliers
+        n_components_range=n_components_range,  # Search for 1 to 5 components
+        use_pca=use_pca,  # Use PCA
+        n_pca_components=n_pca_components,  # Reduce to 5 PCs (or use 0.95 for variance)
+        covariance_type=covariance_type,  # Try 'diag' if 'full' fails or data is limited
+        random_state=42
+)
+print(f"\nIndices of detected outliers:")
+print(outlier_idxs)
+# Create boolean mask from outlier indices
+outlier_mask = np.zeros(X.shape[0], dtype=bool)
+outlier_mask[outlier_idxs] = True
+X_clean = X[~outlier_mask]
+y_clean = y[~outlier_mask]
+print(X_clean.shape,y_clean.shape)
+plt.figure(figsize=(10, 6))
+plt.hist(log_likelihoods, bins=50, color='skyblue', edgecolor='black', label='Log-Likelihood Distribution')
+outlier_mask_viz = np.zeros(X.shape[0], dtype=bool)
+if len(outlier_idxs) > 0:
+    if isinstance(X, pd.DataFrame):
+        outlier_positions = X.index.get_indexer(outlier_idxs)
+    else:
+        outlier_positions = outlier_idxs
+    outlier_mask_viz[outlier_positions] = True
+    plt.scatter(log_likelihoods[outlier_mask_viz], np.zeros_like(outlier_idxs) + 1, color='red', marker='x', s=80,
+                    label='Detected Outliers')
+threshold_val = np.quantile(log_likelihoods, 0.05)  # Use same contamination
+plt.axvline(threshold_val, color='red', linestyle='--', label=f'Threshold ({0.05 * 100:.0f}th percentile)')
+plt.xlabel("Log-Likelihood under GMM")
+plt.ylabel("Frequency / Outlier Marker")
+plt.title("Distribution of Sample Log-Likelihoods from GMM")
+plt.legend()
+plt.grid(axis='x', linestyle='--', alpha=0.6)
+plt.yticks([])
+plt.tight_layout()
+plt.show()
+if pca_mod:
+    X_pca = pca_mod.transform(scaler_mod.transform(X))  # Get scores for all data
+    plt.figure(figsize=(10, 7))
+    sc = plt.scatter(X_pca[:, 0], X_pca[:, 1], c=log_likelihoods, cmap='viridis', alpha=0.7)
+    plt.scatter(X_pca[outlier_mask_viz, 0], X_pca[outlier_mask_viz, 1],
+                    marker='x', s=80, facecolor='none', lw=1.5, label='Detected Outliers')
+    plt.colorbar(sc, label='Log-Likelihood')
+    plt.xlabel(f'Principal Component 1 ({pca_mod.explained_variance_ratio_[0] * 100:.1f}%)')
+    plt.ylabel(f'Principal Component 2 ({pca_mod.explained_variance_ratio_[1] * 100:.1f}%)')
+    plt.title('PCA Scores Colored by GMM Log-Likelihood')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.show()

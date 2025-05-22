@@ -1,0 +1,33 @@
+# ANOVA
+# ANOVA feature selection
+# F-classif
+# ANOVA-based Feature Selection for classification
+import numpy as np
+from sklearn.feature_selection import f_classif
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+def anova_feature_selection(X, y, k=50):
+    """
+    Perform ANOVA for feature selection in classification tasks
+    """
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    f_values, p_values = f_classif(X_scaled, y)
+    feature_scores = list(zip(range(X.shape[1]), f_values))
+    feature_scores.sort(key=lambda x: x[1], reverse=True)
+    selected_features = [idx for idx, _ in feature_scores[:k]]
+    return selected_features, f_values
+
+
+k_features = 50
+selected_features, scores = anova_feature_selection(X, y, k=k_features)
+
+print(f"Selected feature indices: {selected_features}")
+print(f"F-values of top {k_features} features:")
+for idx, score in zip(selected_features, scores[selected_features]):
+    print(f"Feature {idx}: F-value = {score:.4f}")

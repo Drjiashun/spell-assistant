@@ -1,0 +1,107 @@
+# alternating trilinear decomposition
+# ATLD
+import numpy as np
+from scipy.linalg import pinv
+from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
+np.random.seed(42)
+N_SAMPLES = 62
+N_FEATURES = 100 # Reduced for faster simulation/computation
+N_CONDITIONS = 6
+RANK = 3           # Number of components to extract
+TRUE_RANK = 3      # For simulation
+NOISE_LEVEL = 0.1
+MAX_ITER = 100     # Fewer iterations for speed
+EPSILON = 1e-7     # Convergence tolerance
+def simulate_data(n_s, n_f, n_c, true_rank, noise_level):
+    """Simulates 3D data with underlying trilinear structure."""
+    A_true = np.random.rand(n_s, true_rank)
+    B_true = np.random.rand(n_f, true_rank)
+    C_true = np.random.rand(n_c, true_rank)
+    ideal_tensor = np.einsum('ir,jr,kr->ijk', A_true, B_true, C_true)
+    noise = np.random.randn(n_s, n_f, n_c) * noise_level * np.std(ideal_tensor)
+    data_array = ideal_tensor + noise
+    feature_axis = np.linspace(800, 1800, n_f) # Example axis
+    condition_axis = np.arange(n_c)          # Example axis (e.g., pH)
+    print(f"Simulated data: ({n_s}, {n_f}, {n_c})")
+    return data_array, feature_axis, condition_axis
+def atld_optimized(X, rank, max_iter=100, epsilon=1e-7):
+    """Optimized ATLD implementation."""
+    I, J, K = X.shape
+    A = np.random.rand(I, rank)
+    B = np.random.rand(J, rank)
+    C = np.random.rand(K, rank)
+    LFT, LF = [], 0.01 # Initialize loss tracking
+    print(f"Running ATLD (Rank {rank})...")
+    m = 0 # Initialize iteration counter outside loop for final report
+    for m in range(max_iter):
+        try: # Wrap iterations in try-except for pinv errors
+            PB, PC = pinv(B), pinv(C)
+            for i in range(I): A[i, :] = np.diag(PB @ X[i, :, :] @ PC.T)
+            A /= np.linalg.norm(A, axis=0, keepdims=True) + 1e-9 # Normalize columns
+            PA, PC = pinv(A), pinv(C)
+            for j in range(J): B[j, :] = np.diag(PA @ X[:, j, :] @ PC.T)
+            B /= np.linalg.norm(B, axis=0, keepdims=True) + 1e-9 # Normalize columns
+            PA, PB = pinv(A), pinv(B)
+            for k in range(K): C[k, :] = np.diag(PA @ X[:, :, k] @ PB.T)
+        except np.linalg.LinAlgError:
+            print(f"Pinv failed at iteration {m}. Stopping early.")
+            break
+        X_reconstructed = np.einsum('ir,kr,jr->ijk', A, C, B) # Efficient reconstruction
+        LFTT = np.sum((X - X_reconstructed)**2) # Use sum of squares for tensors
+        TOL = abs((LFTT - LF) / (LF + 1e-10))
+        LFT.append(LFTT)
+        if m % 20 == 0: print(f"Iter {m}, Loss: {LFTT:.4e}, Tol: {TOL:.4e}")
+        if TOL < epsilon and m > 5: break
+        LF = LFTT
+    print(f"Final Loss: {LF:.4e}")
+    maxa_idx = np.argmax(np.abs(A), axis=0)
+    maxb_idx = np.argmax(np.abs(B), axis=0)
+    asign = np.sign(A[maxa_idx, np.arange(rank)])
+    bsign = np.sign(B[maxb_idx, np.arange(rank)])
+    A *= asign
+    B *= bsign
+    C *= (asign * bsign)
+    return A, B, C, np.array(LFT), m + 1
+
+def plot_results(A, B, C, LFT, M, feature_axis, condition_axis, rank):
+    """Plots ATLD results without classification labels."""
+    print("Plotting results...")
+    plt.figure(figsize=(6, 5))
+    if rank >= 2:
+        plt.scatter(A[:, 0], A[:, 1], alpha=0.7) # Plot all points without color distinction
+        plt.xlabel('Component 1 Score'); plt.ylabel('Component 2 Score')
+    else:
+        plt.plot(np.arange(len(A)), A[:, 0], '-o') # Plot first component if rank=1
+        plt.xlabel('Sample Index'); plt.ylabel('Component 1 Score')
+    plt.title('ATLD Sample Scores'); plt.grid(True); plt.show()
+    plt.figure(figsize=(6, 4))
+    for r in range(rank): plt.plot(condition_axis, C[:, r], marker='o', label=f'Comp {r+1}')
+    plt.title('Condition Loadings'); plt.xlabel('Condition'); plt.ylabel('Loading'); plt.legend(); plt.grid(True); plt.show()
+    plt.figure(figsize=(7, 4))
+    step = max(1, len(feature_axis) // 100)
+    for r in range(rank): plt.plot(feature_axis[::step], B[::step, r], label=f'Comp {r+1}')
+    plt.title(f'Feature Loadings (1/{step} pts)'); plt.xlabel('Feature'); plt.ylabel('Loading'); plt.legend(); plt.grid(True); plt.show()
+    plt.figure(figsize=(6, 4))
+    plt.plot(np.arange(1, M + 1), np.log10(LFT), '-o')
+    plt.xlabel('Iteration'); plt.ylabel('Log10(Loss)'); plt.title('Loss Function (LFT)'); plt.grid(True); plt.show()
+
+data_array, feature_axis, condition_axis = simulate_data(
+        N_SAMPLES, N_FEATURES, N_CONDITIONS, TRUE_RANK, NOISE_LEVEL
+)
+scaler = StandardScaler()
+I, J, K = data_array.shape
+data_2d = data_array.reshape(I, J*K)
+data_scaled_2d = scaler.fit_transform(data_2d)
+data_scaled = data_scaled_2d.reshape(I, J, K)
+print("Data scaled.")
+A_est, B_est, C_est, LFT, M = atld_optimized(
+        data_scaled, # Use scaled data
+        rank=RANK,
+        max_iter=MAX_ITER,
+        epsilon=EPSILON
+)
+if A_est is not None: # Only plot if ATLD succeeded
+    plot_results(A_est, B_est, C_est, LFT, M, feature_axis, condition_axis, RANK)
+else:
+    print("Skipping plotting as ATLD likely failed.")

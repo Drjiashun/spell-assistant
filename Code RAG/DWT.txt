@@ -1,0 +1,67 @@
+# DWT
+# Discrete Wavelet Transform
+import numpy as np
+import matplotlib.pyplot as plt
+import pywt
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+print(f"Input data shape (X): {X.shape}") # (1000, 300)
+feature_axis = np.arange(spectrum_length) # Simple index
+wavelet_name = 'db4' # Daubechies 4 - a common choice
+# wavelet_name = 'sym5' # Symlet 5
+# wavelet_name = 'haar'   # Simplest wavelet
+level = 3 # Number of decomposition levels
+mode = 'symmetric' # Padding mode for boundaries
+print(f"\nPerforming DWT on {num_samples} spectra using '{wavelet_name}', level {level}, mode '{mode}'...")
+
+coeffs_structure = pywt.wavedec(X[0, :], wavelet_name, level=level, mode=mode)
+print("\n--- Shape of DWT Coefficient Arrays per Level ---")
+print(f"  cA{level} (Approximation): {coeffs_structure[0].shape}")
+for i in range(level):
+    lvl = level - i # Detail level (cD3, cD2, cD1 for level=3)
+    print(f"  cD{lvl} (Detail Level {lvl}): {coeffs_structure[i + 1].shape}")
+total_coeffs_length = sum(len(arr) for arr in coeffs_structure)
+print(f"\nLength of concatenated DWT coefficients per sample: {total_coeffs_length}")
+
+dwt_coeffs_all = np.zeros((num_samples, total_coeffs_length), dtype=np.float64)
+
+for i in range(num_samples):
+    spectrum = X[i, :]
+    coeffs_list = pywt.wavedec(spectrum, wavelet_name, level=level, mode=mode)
+    concatenated_coeffs = np.concatenate(coeffs_list)
+    dwt_coeffs_all[i, :] = concatenated_coeffs
+print(f"Output concatenated DWT coefficients matrix shape: {dwt_coeffs_all.shape}") # (1000, total_coeffs_length)
+
+sample_index_to_plot = 0
+example_spectrum = X[sample_index_to_plot, :]
+example_coeffs_list = pywt.wavedec(example_spectrum, wavelet_name, level=level, mode=mode)
+plt.figure(figsize=(10, 4))
+plt.plot(feature_axis, example_spectrum, label=f'Spectrum Sample {sample_index_to_plot}')
+plt.title(f'Original Spectrum (Sample {sample_index_to_plot})')
+plt.xlabel('Feature Index')
+plt.ylabel('Intensity / Value')
+plt.legend()
+plt.grid(True, linestyle=':')
+plt.show()
+fig, axes = plt.subplots(level + 1, 1, figsize=(10, 2 * (level + 2)), sharex=False) # Don't share x-axis due to different lengths
+fig.suptitle(f'DWT Coefficients (Level {level}, Wavelet "{wavelet_name}") for Sample {sample_index_to_plot}', y=1.02)
+ax = axes[0]
+ax.plot(example_coeffs_list[0], '.-')
+ax.set_title(f'Approximation Coeffs (cA{level}) - Shape {example_coeffs_list[0].shape}')
+ax.grid(True, linestyle=':')
+ax.set_ylabel('Coefficient')
+for i in range(level):
+    lvl = level - i # Detail level (cD1, cD2, ...)
+    ax = axes[i + 1]
+    ax.plot(example_coeffs_list[i + 1], '.-')
+    # Include shape in title
+    ax.set_title(f'Detail Coeffs (cD{lvl}) - Shape {example_coeffs_list[i + 1].shape}')
+    ax.grid(True, linestyle=':')
+    ax.set_ylabel('Coefficient')
+
+axes[-1].set_xlabel('Coefficient Index') # Add x-label to the last plot
+plt.tight_layout(rect=[0, 0, 1, 0.98]) # Adjust layout
+plt.show()

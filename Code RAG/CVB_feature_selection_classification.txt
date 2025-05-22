@@ -1,0 +1,195 @@
+# Combination of the optimal Variable Bands
+# CVB feature selection
+# Combination of the optimal Variable Bands feature selection for classification tasks
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+from sklearn.model_selection import cross_val_score, StratifiedKFold
+from sklearn.base import BaseEstimator, ClassifierMixin
+from itertools import combinations
+import warnings
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+print(f"Input data shape (X): {X.shape}")
+print(f"Target data shape (y): {y.shape}")
+print(f"Class distribution: {np.unique(y, return_counts=True)}")
+scaler_X = StandardScaler()
+X_scaled = scaler_X.fit_transform(X)
+print("X data standardized.")
+class PLSDAClassifier(BaseEstimator, ClassifierMixin):
+    """Wraps PLSRegression for classification tasks."""
+    def __init__(self, n_components=2):
+        self.n_components = n_components
+        self.pls_ = PLSRegression(n_components=self.n_components)
+        self.encoder_ = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+        self.classes_ = None
+
+    def fit(self, X, y):
+        self.classes_ = np.unique(y)
+        y_dummy = self.encoder_.fit_transform(y.reshape(-1, 1))
+        actual_n_components = min(self.n_components, X.shape[0]-1, X.shape[1]-1, len(self.classes_)-1 if len(self.classes_)>1 else 1)
+        actual_n_components = max(1, actual_n_components)
+        if not hasattr(self, 'pls_') or self.pls_.n_components != actual_n_components: self.pls_ = PLSRegression(n_components=actual_n_components)
+        try:
+            self.pls_.fit(X, y_dummy)
+        except ValueError as e:
+             if actual_n_components > 1:
+                 try:
+                     self.pls_ = PLSRegression(n_components=1)
+                     self.pls_.fit(X, y_dummy)
+                 except ValueError as e1: raise ValueError(f"PLS fit failed even with 1 component: {e1}") from e1
+             else: raise ValueError(f"PLS fit failed with 1 component: {e}") from e
+        return self
+    def predict_proba(self, X): # Optional: Added for completeness
+        y_pred_raw = self.pls_.predict(X)
+        y_pred_scaled = np.clip(y_pred_raw, 0, None)
+        sum_preds = np.sum(y_pred_scaled, axis=1, keepdims=True)
+        probs = np.divide(y_pred_scaled, sum_preds, out=np.zeros_like(y_pred_scaled), where=sum_preds!=0)
+        probs[np.sum(probs, axis=1) == 0, 0] = 1.0
+        probs /= np.sum(probs, axis=1, keepdims=True)
+        return probs
+
+    def predict(self, X):
+        y_pred_raw = self.pls_.predict(X)
+        max_indices = np.argmax(y_pred_raw, axis=1)
+        max_indices = np.clip(max_indices, 0, len(self.classes_) - 1)
+        return self.classes_[max_indices]
+def calculate_pls_lda_importance(X_scaled, y, n_pls_components):
+    """Calculates feature importance based on PLS->LDA effective coefficients for regression tasks."""
+    n_samples, n_features = X_scaled.shape
+    n_classes = len(np.unique(y))
+    importance = np.zeros(n_features)
+    actual_n_pls_comp = min(n_pls_components, n_samples-n_classes, n_features-1)
+    actual_n_pls_comp = max(1, actual_n_pls_comp)
+
+    pls = PLSRegression(n_components=actual_n_pls_comp)
+    lda = LDA()
+    try:
+        pls.fit(X_scaled, y) # Use original y here for fitting PLS transform
+        X_scores = pls.transform(X_scaled)
+
+        required_lda_features = n_classes - 1
+        if required_lda_features > 0 and X_scores.shape[1] < required_lda_features:
+            raise ValueError(f"LDA requires {required_lda_features} features, but PLS provided {X_scores.shape[1]}")
+
+        lda.fit(X_scores, y)
+        effective_coef = pls.x_loadings_ @ lda.coef_.T
+        if effective_coef.ndim == 1:
+            importance = effective_coef ** 2
+        else:
+            importance = np.sum(effective_coef ** 2, axis=1) # Sum squares across classes
+        return importance
+    except Exception as e:
+        warnings.warn(f"PLS->LDA Importance calculation failed: {e}. Returning zero importance.", RuntimeWarning)
+        return np.zeros(n_features)
+
+N_COMP_SCREENING = 10 # Components for initial screening PLS
+print(f"\nStep 1: Initial Screening with PLS->LDA Importance ({N_COMP_SCREENING} PLS components)...")
+importance_scores = calculate_pls_lda_importance(X_scaled, y, N_COMP_SCREENING)
+print("Importance scores calculated.")
+plt.figure(figsize=(10, 4))
+plt.bar(np.arange(spectrum_length), importance_scores, label='Importance Scores')
+plt.xlabel('Feature Index'); plt.ylabel('Importance Score (Sum Sq Coeff)')
+plt.title('Initial Variable Importance (PLS->LDA)'); plt.legend(); plt.grid(axis='y'); plt.show()
+importance_threshold_percentile = 80 # Variables above this percentile are candidates
+if np.any(importance_scores > 0): # Avoid error if all scores are 0
+    score_threshold = np.percentile(importance_scores[importance_scores > 0], importance_threshold_percentile)
+else:
+    score_threshold = 0
+candidate_indices = np.where(importance_scores > score_threshold)[0]
+
+if len(candidate_indices) == 0:
+    print(f"No variables found above {importance_threshold_percentile}th percentile threshold. Try lowering threshold.")
+    exit()
+
+potential_bands = []
+if len(candidate_indices) > 0:
+    current_band = [candidate_indices[0]]
+    for i in range(1, len(candidate_indices)):
+        if candidate_indices[i] == candidate_indices[i-1] + 1:
+            current_band.append(candidate_indices[i])
+        else:
+            potential_bands.append(np.array(current_band))
+            current_band = [candidate_indices[i]]
+    potential_bands.append(np.array(current_band))
+
+min_band_size = 3
+potential_bands = [band for band in potential_bands if len(band) >= min_band_size]
+
+band_scores = [np.max(importance_scores[band]) for band in potential_bands]
+ranked_band_indices = np.argsort(band_scores)[::-1]
+print(f"\nStep 2: Identified {len(potential_bands)} potential bands (>= {min_band_size} vars, > {importance_threshold_percentile}th %ile score).")
+if not potential_bands:
+     print("No potential bands identified. Exiting.")
+     exit()
+
+# --- 5. Evaluate Band Combinations using PLS-DA Accuracy ---
+N_TOP_BANDS = 7
+MAX_COMBINATION_SIZE = 4
+N_COMP_PLSDA_EVAL = 5 # Components for the evaluation PLS-DA
+
+top_n_band_indices = ranked_band_indices[:N_TOP_BANDS]
+print(f"Evaluating combinations of the top {len(top_n_band_indices)} bands (Max combination size: {MAX_COMBINATION_SIZE})...")
+
+best_accuracy = -1.0 # Maximize accuracy
+best_combination_indices = []
+best_feature_subset = []
+results = [] # Store (band_indices_in_top_n, features, accuracy)
+cv_eval = StratifiedKFold(n_splits=5, shuffle=True, random_state=42) # Define CV strategy
+plsda_eval = PLSDAClassifier(n_components=N_COMP_PLSDA_EVAL) # Reusable evaluator instance
+for k in range(1, min(MAX_COMBINATION_SIZE, len(top_n_band_indices)) + 1):
+    print(f"  Testing combinations of size {k}...")
+    for combo_indices_in_top_n in combinations(range(len(top_n_band_indices)), k):
+        current_band_set_indices = [top_n_band_indices[i] for i in combo_indices_in_top_n]
+        current_features = np.unique(np.concatenate([potential_bands[i] for i in current_band_set_indices]))
+        if len(current_features) == 0: continue
+        X_eval = X_scaled[:, current_features]
+        try:
+            # Pass original integer labels y for CV evaluation
+            cv_accuracies = cross_val_score(plsda_eval, X_eval, y, cv=cv_eval, scoring='accuracy')
+            accuracy_cv = np.mean(cv_accuracies)
+
+            results.append((combo_indices_in_top_n, current_features, accuracy_cv))
+
+            if accuracy_cv > best_accuracy:
+                best_accuracy = accuracy_cv
+                best_combination_indices = combo_indices_in_top_n
+                best_feature_subset = current_features
+
+        except Exception as e:
+            warnings.warn(f"PLS-DA evaluation failed for combination {combo_indices_in_top_n} ({len(current_features)} vars): {e}")
+
+print("\n--- Combination of Variable Bands (CVB-PLSDA) Results ---")
+if not best_feature_subset.size:
+    print("No best combination found (evaluation might have failed).")
+else:
+    print(f"Best combination found using {len(best_combination_indices)} band(s).")
+    print(f"Indices of bands in top {N_TOP_BANDS}: {best_combination_indices}")
+    print(f"Number of selected features: {len(best_feature_subset)}")
+    print(f"Selected feature indices: {np.sort(best_feature_subset)}")
+    print(f"Best CV Accuracy: {best_accuracy:.4f}")
+
+    selected_features_cvb = np.sort(best_feature_subset)
+
+    # --- 7. Visualization ---
+    # Plot Accuracy vs. number of features for tested combinations
+    if results:
+        num_features_list = [len(r[1]) for r in results]
+        accuracy_list = [r[2] for r in results]
+        plt.figure(figsize=(10, 5))
+        plt.scatter(num_features_list, accuracy_list, alpha=0.6)
+        plt.scatter(len(best_feature_subset), best_accuracy, marker='*', s=150, c='red', label=f'Best Combination')
+        plt.xlabel("Number of Features in Combination"); plt.ylabel("CV Accuracy")
+        plt.title("Accuracy vs. Number of Features in Band Combinations"); plt.grid(True, linestyle=':'); plt.legend(); plt.show()
+
+    # Plot final selected variables mask
+    plt.figure(figsize=(12, 6))
+    plt.stem(np.arange(spectrum_length), np.isin(np.arange(spectrum_length), selected_features_cvb).astype(int), linefmt='g-', markerfmt='go', basefmt=' ', label='CVB Selected Features')
+    plt.xlabel('Feature Index'); plt.ylabel('Selected (1) / Not Selected (0)')
+    plt.title(f'CVB Selected Variables (K={len(selected_features_cvb)})'); plt.yticks([0, 1]); plt.ylim(-0.2, 1.1); plt.legend(); plt.grid(True, linestyle=':'); plt.show()

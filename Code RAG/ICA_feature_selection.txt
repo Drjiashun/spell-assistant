@@ -1,0 +1,77 @@
+# Independent Component Analysis
+# ICA
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.decomposition import FastICA
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+print(f"Input data shape (X): {X.shape}")
+feature_axis = np.arange(spectrum_length)
+print("\nPreprocessing: Scaling data...")
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+n_components_ica = 50
+algorithm = 'parallel'
+whiten = 'unit-variance' # Specify the whitening method as a string
+max_iter = 1000
+tol = 1e-3
+random_state = 42
+print(f"\nPerforming ICA using FastICA...")
+print(f"  Number of components: {n_components_ica}")
+print(f"  Algorithm: {algorithm}")
+print(f"  Whitening: {whiten}") # Print the selected string
+ica = FastICA(
+    n_components=n_components_ica,
+    algorithm=algorithm,
+    whiten=whiten, # Use the string variable here
+    max_iter=max_iter,
+    tol=tol,
+    random_state=random_state
+)
+try:
+    X_ica = ica.fit_transform(X_scaled) # Shape: (num_samples, n_components_ica)
+    ica_components = ica.components_ # Shape: (n_components_ica, spectrum_length)
+    ica_successful = True
+except Exception as e:
+    print(f"ICA failed: {e}")
+    X_ica = None
+    ica_components = None
+    ica_successful = False
+if ica_successful:
+    print(f"Shape of extracted independent component scores (X_ica): {X_ica.shape}")
+    print(f"Shape of estimated source components (ica.components_): {ica_components.shape}")
+if ica_successful:
+    sample_index_to_plot = 0
+    plt.figure(figsize=(10, 4))
+    plt.plot(feature_axis, X[sample_index_to_plot, :], label=f'Spectrum Sample {sample_index_to_plot}')
+    plt.title(f'Original Spectrum (Sample {sample_index_to_plot})')
+    plt.xlabel('Feature Index'); plt.ylabel('Intensity / Value')
+    plt.legend(); plt.grid(True, linestyle=':'); plt.show()
+    n_components_to_plot = min(5, n_components_ica)
+    plt.figure(figsize=(10, 2 * n_components_to_plot))
+    plt.suptitle('Estimated Independent Components (Sources)', y=1.02)
+    for i in range(n_components_to_plot):
+        plt.subplot(n_components_to_plot, 1, i + 1)
+        plt.plot(feature_axis, ica_components[i, :])
+        plt.ylabel(f'IC {i + 1}')
+        plt.grid(True, linestyle=':')
+        if i == n_components_to_plot - 1: plt.xlabel('Feature Index')
+    plt.tight_layout(rect=[0, 0, 1, 0.98]); plt.show()
+    if n_components_ica >= 2:
+        plt.figure(figsize=(8, 6))
+        plt.scatter(X_ica[:, 0], X_ica[:, 1], alpha=0.5, s=10)
+        plt.xlabel('Independent Component 1 Score'); plt.ylabel('Independent Component 2 Score')
+        plt.title('ICA Transformed Data (Scores for first 2 Components)')
+        plt.grid(True, linestyle=':'); plt.axis('equal'); plt.show()
+    elif n_components_ica == 1:
+         plt.figure(figsize=(8, 4))
+         plt.hist(X_ica[:, 0], bins=50)
+         plt.xlabel('Independent Component 1 Score'); plt.ylabel('Frequency')
+         plt.title('Histogram of Scores for the Single Independent Component')
+         plt.grid(True, linestyle=':'); plt.show()
+else:
+    print("Skipping visualization as ICA failed.")

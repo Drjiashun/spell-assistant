@@ -1,0 +1,43 @@
+# Classical Least Squares
+# CLS
+import numpy as np
+from sklearn.metrics import mean_squared_error, r2_score
+np.random.seed(42)
+n_features = 100
+n_components = 3
+n_samples = 50
+n_latent_factors = 8
+n_targets = n_components
+x_feat = np.linspace(0, 10, n_features)
+K = np.zeros((n_features, n_components))
+K[:, 0] = np.exp(-((x_feat - 2)**2) / (2 * 0.5**2))
+K[:, 1] = np.exp(-((x_feat - 5)**2) / (2 * 1.0**2)) * 0.8
+K[:, 2] = np.exp(-((x_feat - 8)**2) / (2 * 1.5**2)) * 0.6
+mean = np.random.rand(n_features) * 3
+cov_base = np.random.rand(n_features, n_features) * 0.6
+cov = (cov_base @ cov_base.T) / 2 + np.eye(n_features) * 1.0
+X_all = np.random.multivariate_normal(mean, cov, n_samples)
+
+true_loadings_X = np.random.randn(n_features, n_latent_factors)
+latent_scores = np.random.randn(n_samples, n_latent_factors)
+C_true = latent_scores @ np.random.randn(n_latent_factors, n_components)
+C_true = np.clip(C_true, 0, None)
+A_true = C_true @ K.T
+noise_level = 0.02
+noise = np.random.randn(n_samples, n_features) * noise_level
+A_measured = A_true + noise
+
+C_pred_T, residuals, rank, s = np.linalg.lstsq(K, A_measured.T, rcond=None)
+C_pred = C_pred_T.T
+
+print(f"Shape of K (Pure Spectra): {K.shape}")
+print(f"Shape of A_measured (Mixture Spectra): {A_measured.shape}")
+print(f"Shape of C_true (True Concentrations): {C_true.shape}")
+print(f"Shape of C_pred (Predicted Concentrations): {C_pred.shape}")
+print("\nPrediction Performance:")
+for i in range(n_components):
+    mse = mean_squared_error(C_true[:, i], C_pred[:, i])
+    r2 = r2_score(C_true[:, i], C_pred[:, i])
+    print(f"  Component {i+1}:")
+    print(f"    RMSE: {np.sqrt(mse):.4f}")
+    print(f"    R^2:  {r2:.4f}")

@@ -1,0 +1,34 @@
+# PCA dimensionality reduction
+# Principal Component Analysis
+# PCA Dimensional Reduction
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+pca = PCA(n_components=2)
+X_pca = pca.fit_transform(X)
+print("解释方差比率:", pca.explained_variance_ratio_)
+plt.figure(figsize=(8, 6))
+colors = ['red', 'green', 'blue']
+for label in range(n_classes):
+    plt.scatter(
+        X_pca[y == label, 0],
+        X_pca[y == label, 1],
+        label=f'Class {label}',
+        color=colors[label],
+        alpha=0.7,
+        edgecolors='k'
+    )
+
+plt.xlabel('PC1')
+plt.ylabel('PC2')
+plt.title('PCA')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()

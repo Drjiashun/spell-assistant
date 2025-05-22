@@ -1,0 +1,144 @@
+# Monte Carlo outlier
+# Monte Carlo outlier detection
+# Monte Carlo outlier samples detection
+# Monte Carlo outlier sample detection
+# Monte Carlo outlier sample detection for classification tasks
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.cross_decomposition import PLSRegression
+import pandas as pd
+from tqdm import tqdm
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+def detect_outliers_mccv_classification(X, y, n_splits=100, test_size=0.2, n_pls_components=5, error_threshold_std_factor=3.0):
+    """
+    Detect outliers using Monte Carlo Cross-Validation (MCCV) for classification tasks,
+    based on sample-wise average misclassification rate using PLS-DA.
+    """
+    if isinstance(X, pd.DataFrame):
+        X_values = X.values
+        original_indices = X.index
+    else:
+        X_values = np.asarray(X)
+        original_indices = np.arange(X_values.shape[0])
+    y_values = np.asarray(y).reshape(-1, 1) # Ensure y is 2D for OneHotEncoder
+    n_samples = X_values.shape[0]
+    encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore') # Use sparse=False for dense array
+    try:
+        Y_dummy = encoder.fit_transform(y_values)
+        n_classes = Y_dummy.shape[1]
+        print(f"Found {n_classes} classes: {encoder.categories_[0]}")
+        if n_classes <= 1:
+             raise ValueError("Only one class found in y. Cannot perform classification.")
+    except Exception as e:
+        raise ValueError(f"Error during OneHotEncoding of y: {e}")
+    sample_sum_errors = np.zeros(n_samples) # Sum of misclassifications (0 or 1)
+    sample_validation_counts = np.zeros(n_samples, dtype=int)
+    mccv = ShuffleSplit(n_splits=n_splits, test_size=test_size, random_state=42)
+    print(f"Running MCCV for classification with {n_splits} splits...")
+    for train_idx, test_idx in tqdm(mccv.split(X_values), total=n_splits):
+        X_train, X_test = X_values[train_idx], X_values[test_idx]
+        Y_dummy_train, Y_dummy_test = Y_dummy[train_idx], Y_dummy[test_idx]
+        y_test_orig = y_values[test_idx].ravel()
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
+        current_n_pls_components = min(n_pls_components, X_train_scaled.shape[0] - 1)
+        if current_n_pls_components <= 0:
+             print(f"Warning: Too few samples in training set ({X_train_scaled.shape[0]}) to fit PLS model. Skipping split.")
+             continue
+        pls = PLSRegression(n_components=current_n_pls_components)
+        try:
+            pls.fit(X_train_scaled, Y_dummy_train)
+        except ValueError as e:
+            print(f"Warning: Could not fit PLS model in one split. Skipping split. Error: {e}")
+            continue
+        Y_pred_dummy = pls.predict(X_test_scaled)
+        if Y_pred_dummy.ndim == 1:
+             predicted_class_indices = (Y_pred_dummy > 0.5).astype(int).flatten() # Simple threshold for binary
+             if len(encoder.categories_[0])==2: # Ensure it was indeed binary
+                  predicted_labels = encoder.categories_[0][predicted_class_indices]
+             else:
+                  print("Warning: Unexpected output shape from PLS for non-binary case. Skipping split.")
+                  continue # Skip if unclear how to decode
+        elif Y_pred_dummy.shape[1] == n_classes:
+            predicted_class_indices = np.argmax(Y_pred_dummy, axis=1)
+            predicted_labels = encoder.categories_[0][predicted_class_indices]
+        else:
+             print(f"Warning: Predicted dummy variable shape ({Y_pred_dummy.shape}) doesn't match number of classes ({n_classes}). Skipping split.")
+             continue # Skip if shape mismatch
+        misclassified = (predicted_labels != y_test_orig).astype(int)
+        np.add.at(sample_sum_errors, test_idx, misclassified)
+        np.add.at(sample_validation_counts, test_idx, 1)
+    valid_counts_mask = sample_validation_counts > 0
+    sample_avg_misclassification_rate = np.full(n_samples, np.nan)
+    sample_avg_misclassification_rate[valid_counts_mask] = sample_sum_errors[valid_counts_mask] / sample_validation_counts[valid_counts_mask]
+    if np.any(~valid_counts_mask):
+        print(f"Warning: {np.sum(~valid_counts_mask)} samples were never included in the validation set.")
+    valid_rates = sample_avg_misclassification_rate[valid_counts_mask]
+    if len(valid_rates) == 0:
+        print("Warning: No samples were validated. Cannot determine outliers.")
+        return np.array([], dtype=int), sample_avg_misclassification_rate
+    mean_rate = np.nanmean(sample_avg_misclassification_rate)
+    std_rate = np.nanstd(sample_avg_misclassification_rate)
+    error_threshold = mean_rate + error_threshold_std_factor * std_rate
+    error_threshold = min(error_threshold, 1.0)
+    print(f"\nAverage Misclassification Rate across samples: {mean_rate:.4f}")
+    print(f"Std Dev of sample Misclassification Rates: {std_rate:.4f}")
+    print(f"Outlier threshold (Mean + {error_threshold_std_factor}*StdDev, capped at 1.0): {error_threshold:.4f}")
+    outlier_mask = (sample_avg_misclassification_rate > error_threshold) & (~np.isnan(sample_avg_misclassification_rate))
+    outlier_indices_local = np.where(outlier_mask)[0]
+    outlier_indices = original_indices[outlier_indices_local]
+    print(f"Number of potential outliers detected: {len(outlier_indices)}")
+    return outlier_indices, sample_avg_misclassification_rate
+
+
+optimal_pls_components_clf = 6 # Often slightly more than true separation complexity
+n_splits=200
+error_threshold_std_factor=2.5
+outlier_idxs, sample_rates = detect_outliers_mccv_classification(
+        X,
+        y,
+        n_splits=n_splits,
+        test_size=0.3,
+        n_pls_components=optimal_pls_components_clf,
+        error_threshold_std_factor=error_threshold_std_factor # Might need adjustment based on data
+)
+
+print(f"\nIndices of detected outliers:")
+print(outlier_idxs)
+# Create boolean mask from outlier indices
+outlier_mask = np.zeros(X.shape[0], dtype=bool)
+outlier_mask[outlier_idxs] = True
+X_clean = X[~outlier_mask]
+y_clean = y[~outlier_mask]
+print(X_clean.shape,y_clean.shape)
+plt.figure(figsize=(10, 6))
+valid_rates_for_plot = sample_rates[~np.isnan(sample_rates)]
+plt.hist(valid_rates_for_plot, bins=np.linspace(0, 1, 21), color='lightcoral', edgecolor='black', label='Sample Avg. Misclassification Rate') # Bins from 0 to 1
+
+if len(outlier_idxs) > 0:
+    if isinstance(X, pd.DataFrame):
+        outlier_positions = X.index.get_indexer(outlier_idxs)
+    else:
+        outlier_positions = outlier_idxs
+    plt.scatter(sample_rates[outlier_positions], np.zeros_like(outlier_positions) + 1 , color='black', marker='x', s=80, label='Detected Outliers')
+mean_rate_val = np.nanmean(sample_rates)
+std_rate_val = np.nanstd(sample_rates)
+threshold_val = min(mean_rate_val + 2.5 * std_rate_val, 1.0) # Use same factor as in function
+plt.axvline(threshold_val, color='black', linestyle='--', label=f'Threshold (Mean + {2.5}*Std)')
+
+plt.xlabel("Average Sample Misclassification Rate across MCCV splits")
+plt.ylabel("Frequency / Outlier Marker")
+plt.title("Distribution of Sample Misclassification Rates from MCCV")
+plt.legend()
+plt.grid(axis='x', linestyle='--', alpha=0.6)
+plt.yticks([])
+plt.xlim(-0.05, 1.05) # Set x-axis limits from 0 to 1
+plt.tight_layout()
+plt.show()

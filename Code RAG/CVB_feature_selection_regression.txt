@@ -1,0 +1,158 @@
+# Combination of the optimal Variable Bands
+# CVB feature selection
+# Combination of the optimal Variable Bands feature selection for regression tasks
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import KFold, cross_val_predict
+from sklearn.metrics import mean_squared_error
+from itertools import combinations
+import warnings
+
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+print(f"Input data shape (X): {X.shape}")
+print(f"Target data shape (y): {y.shape}")
+scaler_X = StandardScaler()
+X_scaled = scaler_X.fit_transform(X)
+scaler_y = StandardScaler()
+y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).flatten()
+print("Data standardized.")
+def calculate_vip(pls_model):
+    """ Calculates VIP scores from a fitted PLS model for regression tasks. """
+    t = pls_model.x_scores_; w = pls_model.x_weights_; q = pls_model.y_loadings_
+    p, h = w.shape
+    if h == 0: return np.zeros(p) # Handle case with 0 components
+    ssy_h = np.sum(t**2, axis=0) * (q[0, :]**2)
+    ssy_total = np.sum(ssy_h)
+    if ssy_total < 1e-12: return np.zeros(p)
+    vip_j = np.sqrt(p * np.sum(ssy_h * (w**2), axis=1) / ssy_total)
+    return vip_j
+N_COMP_VIP = 10 # Components for initial VIP calculation
+print(f"\nStep 1: Initial Screening with PLS-VIP ({N_COMP_VIP} components)...")
+pls_vip = PLSRegression(n_components=N_COMP_VIP)
+try:
+    pls_vip.fit(X_scaled, y_scaled)
+    vip_scores = calculate_vip(pls_vip)
+    print("VIP scores calculated.")
+except Exception as e:
+    print(f"Error during initial PLS-VIP: {e}. Exiting.")
+    exit()
+plt.figure(figsize=(10, 4))
+plt.bar(np.arange(spectrum_length), vip_scores, label='VIP Scores')
+plt.axhline(1.0, color='r', linestyle='--', label='VIP=1 Threshold')
+plt.xlabel('Feature Index'); plt.ylabel('VIP Score')
+plt.title('Initial Variable Importance (PLS-VIP)'); plt.legend(); plt.grid(axis='y'); plt.show()
+vip_threshold_band = 0.9 # Variables above this are candidates
+candidate_indices = np.where(vip_scores >= vip_threshold_band)[0]
+
+if len(candidate_indices) == 0:
+    print(f"No variables found above VIP threshold {vip_threshold_band}. Try lowering threshold or checking data.")
+    exit()
+
+potential_bands = []
+if len(candidate_indices) > 0:
+    current_band = [candidate_indices[0]]
+    for i in range(1, len(candidate_indices)):
+        if candidate_indices[i] == candidate_indices[i-1] + 1:
+            current_band.append(candidate_indices[i])
+        else:
+            potential_bands.append(np.array(current_band))
+            current_band = [candidate_indices[i]]
+    potential_bands.append(np.array(current_band)) # Add the last band
+
+# Optional: Filter bands based on minimum size or max VIP within band
+min_band_size = 3
+potential_bands = [band for band in potential_bands if len(band) >= min_band_size]
+
+# Rank bands by the maximum VIP score within each band
+band_scores = [np.max(vip_scores[band]) for band in potential_bands]
+ranked_band_indices = np.argsort(band_scores)[::-1] # Indices of potential_bands sorted by score
+
+print(f"\nStep 2: Identified {len(potential_bands)} potential bands (>= {min_band_size} vars, VIP >= {vip_threshold_band}).")
+if not potential_bands:
+     print("No potential bands identified. Exiting.")
+     exit()
+
+
+# --- 5. Evaluate Band Combinations ---
+N_TOP_BANDS = 7  # Consider combinations of the top N bands (adjust based on computation time)
+MAX_COMBINATION_SIZE = 4 # Maximum number of bands to combine (e.g., combine up to 4 top bands)
+
+top_n_band_indices = ranked_band_indices[:N_TOP_BANDS]
+print(f"Evaluating combinations of the top {len(top_n_band_indices)} bands (Max combination size: {MAX_COMBINATION_SIZE})...")
+best_rmse = np.inf
+best_combination_indices = [] # Stores indices *within top_n_band_indices*
+best_feature_subset = []    # Stores the actual feature indices
+results = [] # Store (band_indices_in_top_n, features, rmse)
+# Iterate through combination sizes (1 band, 2 bands, ..., MAX_COMBINATION_SIZE bands)
+for k in range(1, min(MAX_COMBINATION_SIZE, len(top_n_band_indices)) + 1):
+    print(f"  Testing combinations of size {k}...")
+    # Generate combinations of indices from the top N bands
+    for combo_indices_in_top_n in combinations(range(len(top_n_band_indices)), k):
+        # Get the actual band indices corresponding to this combination
+        current_band_set_indices = [top_n_band_indices[i] for i in combo_indices_in_top_n]
+        # Combine the features from the selected bands
+        current_features = np.concatenate([potential_bands[i] for i in current_band_set_indices])
+        current_features = np.unique(current_features) # Ensure unique indices
+
+        if len(current_features) == 0: continue # Skip empty combinations
+
+        X_eval = X_scaled[:, current_features]
+        N_COMP_EVAL = 5 # Components for evaluation PLS
+        n_comp_eval = min(N_COMP_EVAL, X_eval.shape[1]) # Ensure valid components
+        n_comp_eval = max(1, n_comp_eval)
+
+        try:
+            pls_eval = PLSRegression(n_components=n_comp_eval)
+            cv = KFold(n_splits=5, shuffle=True, random_state=42)
+            y_cv_pred = cross_val_predict(pls_eval, X_eval, y_scaled, cv=cv)
+            # Inverse transform predictions to compare on original scale
+            y_cv_pred_orig = scaler_y.inverse_transform(y_cv_pred.reshape(-1,1)).flatten()
+            # Use original y for RMSE calculation
+            rmsecv = np.sqrt(mean_squared_error(y, y_cv_pred_orig))
+
+            results.append((combo_indices_in_top_n, current_features, rmsecv))
+
+            if rmsecv < best_rmse:
+                best_rmse = rmsecv
+                best_combination_indices = combo_indices_in_top_n
+                best_feature_subset = current_features
+
+        except Exception as e:
+            warnings.warn(f"PLS evaluation failed for combination {combo_indices_in_top_n}: {e}")
+
+# --- 6. Results ---
+print("\n--- Combination of Variable Bands (CVB) Results ---")
+if not best_feature_subset.size:
+    print("No best combination found (evaluation might have failed).")
+else:
+    print(f"Best combination found using {len(best_combination_indices)} band(s).")
+    print(f"Indices of bands in top {N_TOP_BANDS}: {best_combination_indices}")
+    print(f"Number of selected features: {len(best_feature_subset)}")
+    print(f"Selected feature indices: {np.sort(best_feature_subset)}")
+    print(f"Best RMSECV: {best_rmse:.4f}")
+
+    selected_features_cvb = np.sort(best_feature_subset) # Final selected features
+    if results:
+        num_features_list = [len(r[1]) for r in results]
+        rmsecv_list = [r[2] for r in results]
+        plt.figure(figsize=(10, 5))
+        plt.scatter(num_features_list, rmsecv_list, alpha=0.6)
+        plt.scatter(len(best_feature_subset), best_rmse, marker='*', s=150, c='red', label=f'Best Combination')
+        plt.xlabel("Number of Features in Combination")
+        plt.ylabel("RMSECV")
+        plt.title("RMSECV vs. Number of Features in Band Combinations")
+        plt.grid(True, linestyle=':')
+        plt.legend()
+        plt.show()
+    plt.figure(figsize=(12, 6))
+    plt.stem(np.arange(spectrum_length), np.isin(np.arange(spectrum_length), selected_features_cvb).astype(int),
+             linefmt='g-', markerfmt='go', basefmt=' ', label='CVB Selected Features')
+    plt.xlabel('Feature Index'); plt.ylabel('Selected (1) / Not Selected (0)')
+    plt.title(f'CVB Selected Variables (K={len(selected_features_cvb)})')
+    plt.yticks([0, 1]); plt.ylim(-0.2, 1.1); plt.legend(); plt.grid(True, linestyle=':'); plt.show()

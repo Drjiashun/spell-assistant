@@ -1,0 +1,65 @@
+# PLS Coefficients
+# PLS Coef
+# Partial Least Squares Coefficients Feature Selection
+# Partial Least Squares Coefficients Feature Selection For Classification
+import numpy as np
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.feature_selection import SelectFromModel
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+def pls_coefficients_feature_selection_classification(
+        X: np.ndarray,
+        y: np.ndarray,
+        n_components: int = 3,
+        max_features = None,
+        threshold = 'mean'
+):
+    """
+    Perform feature selection using PLS coefficients for classification tasks (PLS-DA).
+    """
+    scaler_X = StandardScaler()
+    X_scaled = scaler_X.fit_transform(X)
+    le = LabelEncoder()
+    y_encoded = le.fit_transform(y)
+    y_pls = y_encoded.astype(float) if len(le.classes_) == 2 else np.eye(len(le.classes_))[y_encoded]
+    try:
+        estimator = PLSRegression(n_components=n_components)
+        estimator.fit(X_scaled, y_pls)
+        coef = estimator.coef_.ravel() if len(le.classes_) == 2 else estimator.coef_[:, 0]
+        selector = SelectFromModel(
+            estimator=estimator,
+            max_features=max_features,
+            threshold=threshold,
+            prefit=True,
+            importance_getter=lambda est: np.abs(est.coef_.ravel() if len(le.classes_) == 2 else est.coef_[:, 0])
+        )
+        selected_indices = selector.get_support(indices=True)
+        selected_features = X[:, selected_indices] if len(selected_indices) > 0 else np.array([])
+        coefficients = coef
+        threshold_used = selector.threshold_
+        return selected_features, selected_indices, coefficients, threshold_used
+    except Exception as e:
+        return np.array([]), np.array([]), np.zeros(X.shape[1]), 0.0
+
+# Perform PLS coefficients feature selection
+n_components=5
+max_features=50
+threshold='mean'
+selected_features, selected_indices, coefficients, threshold_used = pls_coefficients_feature_selection_classification(
+        X, y,
+        n_components=n_components,
+        max_features=max_features,
+        threshold=threshold
+)
+print("--- PLS Coefficients Feature Selection Results (Classification) ---")
+print(f"Original data shape: {X.shape}")
+print(f"Selected features shape: {selected_features.shape}")
+print(f"Selected feature indices: {selected_indices.tolist()}")
+print(f"Threshold used: {threshold_used:.4f}")
+if len(selected_indices) == 0:
+    print("Warning: No features were selected. Consider lowering threshold or increasing max_features.")

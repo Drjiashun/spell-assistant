@@ -1,0 +1,15 @@
+# First Derivative
+# First-order Derivative
+import numpy as np
+from scipy.signal import savgol_filter
+np.random.seed(42)
+t = np.linspace(0, 1, 400)
+signal = np.sin(2 * np.pi * 5 * t) + 0.5 * np.random.randn(400)
+
+window_size = 21
+poly_order = 3
+
+deriv_signal = savgol_filter(signal, window_size, poly_order, deriv=1)
+
+print(f"Original signal length: {len(signal)}")
+print(f"Derivative signal length: {len(deriv_signal)}")

@@ -1,0 +1,62 @@
+# Forward Selection
+# Forward Feature Selection
+# Forward Feature Selection For Classification
+import numpy as np
+from sklearn.feature_selection import SequentialFeatureSelector
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+def forward_selection(
+        X: np.ndarray,
+        y: np.ndarray,
+        n_features_to_select = 'auto',
+        scoring: str = 'accuracy',
+        cv: int = 5,
+        max_iter: int = 1000
+):
+    """
+    Perform forward feature selection for classification tasks using SequentialFeatureSelector.
+    """
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    try:
+        estimator = LogisticRegression(
+            solver='lbfgs',
+            max_iter=max_iter,
+            random_state=42,
+            n_jobs=-1  # Use all available cores
+        )
+        sfs = SequentialFeatureSelector(
+            estimator,
+            n_features_to_select=n_features_to_select,
+            direction='forward',
+            scoring=scoring,
+            cv=cv,
+            n_jobs=-1  # Parallelize cross-validation
+        )
+        sfs.fit(X_scaled, y)
+        selected_indices = sfs.get_support(indices=True)
+        return selected_indices
+
+    except Exception as e:
+        return np.array([]), np.array([])
+n_features_to_select = 50
+cv = 5
+max_iter=1000
+selected_indices = forward_selection(
+        X, y,
+        n_features_to_select=n_features_to_select,
+        scoring='accuracy',
+        cv=cv,
+        max_iter=max_iter
+)
+print("--- Forward Selection Results ---")
+print(f"Original data shape: {X.shape}")
+print(f"Selected feature indices: {selected_indices.tolist()}")
+if len(selected_indices) == 0:
+    print("Warning: No features were selected. Consider adjusting n_features_to_select or scoring.")

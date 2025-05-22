@@ -1,0 +1,64 @@
+# Ridge Regression Feature Selection
+# L2 Regularization
+# Ridge Regression Feature Selection For Classification
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+from sklearn.feature_selection import SelectFromModel
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+def ridge_feature_selection_classification(
+        X: np.ndarray,
+        y: np.ndarray,
+        C: float = 1.0,
+        max_features = None,
+        threshold = 'mean'
+):
+    """
+    Perform feature selection for classification tasks using Logistic Regression with L2 (Ridge) regularization.
+    """
+    scaler_X = StandardScaler()
+    X_scaled = scaler_X.fit_transform(X)
+    try:
+        estimator = LogisticRegression(
+            penalty='l2',
+            C=C,  # Inverse of regularization strength (C = 1/alpha)
+            solver='lbfgs',
+            max_iter=1000,
+            random_state=42,
+            n_jobs=-1  # Use all available cores
+        )
+        selector = SelectFromModel(
+            estimator=estimator,
+            max_features=max_features,
+            threshold=threshold
+        )
+        selector.fit(X_scaled, y)
+        selected_indices = selector.get_support(indices=True)
+        selected_features = X[:, selected_indices] if len(selected_indices) > 0 else np.array([])
+        coefficients = selector.estimator_.coef_.ravel() if len(np.unique(y)) == 2 else selector.estimator_.coef_[0]
+        threshold_used = selector.threshold_
+        return selected_features, selected_indices, coefficients, threshold_used
+    except Exception as e:
+        return np.array([]), np.array([]), np.zeros(X.shape[1]), 0.0
+C=1.0
+max_features=50
+threshold='mean'
+selected_features, selected_indices, coefficients, threshold_used = ridge_feature_selection_classification(
+        X, y,
+        C=C,
+        max_features=max_features,
+        threshold=threshold
+)
+
+print("--- Ridge (L2) Feature Selection Results (Classification) ---")
+print(f"Original data shape: {X.shape}")
+print(f"Selected features shape: {selected_features.shape}")
+print(f"Selected feature indices: {selected_indices.tolist()}")
+print(f"Threshold used: {threshold_used:.4f}")
+if len(selected_indices) == 0:
+    print("Warning: No features were selected. Consider increasing C or adjusting threshold/max_features.")

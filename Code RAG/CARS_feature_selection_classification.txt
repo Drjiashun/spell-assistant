@@ -1,0 +1,157 @@
+# CARS feature selection
+# CARS
+# Competitive Adaptive Reweighted Sampling feature selection for classification
+# Competitive Adaptive Reweighted Sampling
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import KFold, cross_val_predict
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score
+import warnings
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+print(f"Input data shape (X): {X.shape}")
+print(f"Target data shape (y): {y.shape}")
+scaler_X = StandardScaler()
+X_scaled = scaler_X.fit_transform(X)
+print("X data standardized.")
+y_one_hot = np.zeros((num_samples, n_classes))
+for i in range(num_samples):
+    y_one_hot[i, y[i]] = 1
+print(f"One-hot encoded y shape: {y_one_hot.shape}")
+def cars_pls(X, y, y_one_hot, n_sampling_runs=50, n_components_pls=5, cv_folds=5, min_features=20, verbose=False):
+    """
+    Performs Competitive Adaptive Reweighted Sampling (CARS) with PLS-DA for classification task.
+    """
+    n_samples, n_features = X.shape
+    print(f"Starting CARS-PLS with {n_sampling_runs} sampling runs...")
+    # --- Initialization ---
+    pls_full = PLSRegression(n_components=min(n_components_pls, n_features, n_samples - cv_folds - 1))
+    pls_full.fit(X, y_one_hot)
+    initial_coeffs = np.sum(np.abs(pls_full.coef_), axis=1)  # Sum absolute coefficients across classes
+    indices = np.arange(n_features)  # Track available indices
+    selected_indices_history = []  # Store selected indices at each run
+    accuracy_cv_history = []  # Store CV accuracy for each subset size
+    coeffs_history = []  # Store coefficients/weights used for selection
+
+    # --- Main CARS Loop ---
+    for run in range(n_sampling_runs):
+        current_weights = initial_coeffs if run == 0 else np.abs(np.mean(np.vstack(coeffs_history[-1]), axis=0))
+        sample_subset_indices = np.random.choice(n_samples, size=int(n_samples * 0.8), replace=True)
+        X_subset = X[sample_subset_indices][:, indices]  # Select current features
+        y_subset = y_one_hot[sample_subset_indices]
+        y_labels_subset = y[sample_subset_indices]  # Original labels for evaluation
+        n_comp_subset = min(n_components_pls, X_subset.shape[1], X_subset.shape[0] - cv_folds - 1)
+        if n_comp_subset < 1:
+            warnings.warn(f"Run {run + 1}: Not enough samples/features for PLS subset model. Using previous weights.")
+            weights_in_run = [coeffs_history[-1]] if run > 0 else [np.abs(np.random.randn(len(indices)))]
+        else:
+            pls_subset = PLSRegression(n_components=n_comp_subset)
+            try:
+                pls_subset.fit(X_subset, y_subset)
+                weights_in_run = [np.sum(np.abs(pls_subset.coef_), axis=1)]  # Sum absolute coefficients
+            except Exception as e:
+                warnings.warn(f"Run {run + 1}: PLS subset fitting failed: {e}. Using previous weights.")
+                weights_in_run = [coeffs_history[-1]] if run > 0 else [np.abs(np.random.randn(len(indices)))]
+        coeffs_history.append(weights_in_run[0])  # Store weights
+        r = (1 / (n_features - 1)) * np.log((n_features) / 2)  # Decay rate
+        ratio = (n_features / 2) ** (1 / (n_sampling_runs - 1)) * np.exp(
+            -(np.log(n_features / 2) / (n_sampling_runs - 1)) * run)  # EDF formula
+        n_vars_to_keep = max(2, min(len(indices), int(np.round(n_features * ratio))))  # Ensure within bounds
+        current_variable_weights = weights_in_run[0]
+        sorted_weight_indices = np.argsort(current_variable_weights)[::-1]
+        selected_indices_in_current = sorted_weight_indices[:n_vars_to_keep]
+        if np.any(selected_indices_in_current >= len(indices)):
+            warnings.warn(
+                f"Run {run + 1}: Invalid indices in selected_indices_in_current: {selected_indices_in_current}")
+            selected_indices_in_current = sorted_weight_indices[:min(n_vars_to_keep, len(indices))]
+
+        indices = indices[selected_indices_in_current]  # Update available indices
+        X_eval = X[:, indices]  # Use selected features on full dataset
+        n_comp_eval = min(n_components_pls, X_eval.shape[1], n_samples - cv_folds - 1)
+        if n_comp_eval < 1:
+            warnings.warn(
+                f"Run {run + 1}: Not enough features ({len(indices)}) for evaluation PLS. Assigning low accuracy.")
+            accuracy_cv = 0.0
+        else:
+            pls_eval = PLSRegression(n_components=n_comp_eval)
+            cv = KFold(n_splits=cv_folds, shuffle=True, random_state=run)
+            y_pred_one_hot = cross_val_predict(pls_eval, X_eval, y_one_hot, cv=cv)
+            y_pred_labels = np.argmax(y_pred_one_hot, axis=1)  # Convert to class labels
+            accuracy_cv = accuracy_score(y, y_pred_labels)
+
+        selected_indices_history.append(indices.copy())
+        accuracy_cv_history.append(accuracy_cv)
+        if verbose and (run + 1) % (n_sampling_runs // 10 + 1) == 0:
+            print(f"  Run {run + 1}/{n_sampling_runs}: Keeping {len(indices)} vars, Accuracy={accuracy_cv:.4f}")
+        n_features = len(indices)
+        if n_features <= 2:  # Stop if 2 or fewer features remain
+            print(f"Stopping early at run {run + 1}: {n_features} variables remaining.")
+            break
+
+    # --- Select Optimal Subset with Minimum Features Constraint ---
+    valid_indices = [i for i, indices in enumerate(selected_indices_history) if len(indices) >= min_features]
+    if not valid_indices:
+        warnings.warn(f"No subsets with at least {min_features} features found. Returning subset with most features.")
+        valid_indices = [np.argmax([len(indices) for indices in selected_indices_history])]
+    max_accuracy_index = valid_indices[np.argmax([accuracy_cv_history[i] for i in valid_indices])]
+    selected_indices = selected_indices_history[max_accuracy_index]
+    max_accuracy = accuracy_cv_history[max_accuracy_index]
+    print(f"Optimal number of variables: {len(selected_indices)} found at run {max_accuracy_index + 1}")
+    print(f"Maximum CV Accuracy: {max_accuracy:.4f}")
+    history = {
+        'n_selected_vars': [len(s) for s in selected_indices_history],
+        'accuracy': accuracy_cv_history,
+        'selected_indices_history': selected_indices_history,
+    }
+    selected_features = X[:, selected_indices] if len(selected_indices) > 0 else np.array([[]])
+    return selected_indices, history
+N_CARS_RUNS = 50
+N_PLS_COMP = 10
+CV_FOLDS_CARS = 5
+MIN_FEATURES = 20
+selected_indices, cars_history = cars_pls(
+    X_scaled, y, y_one_hot,
+    n_sampling_runs=N_CARS_RUNS,
+    n_components_pls=N_PLS_COMP,
+    cv_folds=CV_FOLDS_CARS,
+    min_features=MIN_FEATURES,
+    verbose=True
+)
+print("\n--- CARS Results ---")
+print(f"Number of selected features: {len(selected_indices)}")
+print(f"Selected feature indices (CARS): {selected_indices.tolist()}")
+plt.figure(figsize=(10, 5))
+plt.plot(range(1, len(cars_history['n_selected_vars']) + 1), cars_history['n_selected_vars'], '-o', markersize=4)
+plt.xlabel('Sampling Run')
+plt.ylabel('Number of Selected Variables')
+plt.title('CARS: Variable Selection Progress')
+plt.grid(True, linestyle=':')
+plt.show()
+max_accuracy_idx = np.argmax(cars_history['accuracy'])
+plt.figure(figsize=(10, 5))
+plt.plot(range(1, len(cars_history['accuracy']) + 1), cars_history['accuracy'], '-o', markersize=4)
+plt.xlabel('Sampling Run')
+plt.ylabel('CV Accuracy')
+plt.title('CARS: CV Accuracy vs. Sampling Run')
+plt.scatter(max_accuracy_idx + 1, cars_history['accuracy'][max_accuracy_idx], marker='*', s=150, c='red',
+            label=f'Optimal Run ({max_accuracy_idx + 1})')
+plt.legend()
+plt.grid(True, linestyle=':')
+plt.show()
+plt.figure(figsize=(12, 6))
+plt.stem(np.arange(spectrum_length), np.isin(np.arange(spectrum_length), selected_features_cars).astype(int),
+         linefmt='g-', markerfmt='go', basefmt=' ', label='CARS Selected Features')
+plt.xlabel('Feature Index')
+plt.ylabel('Selected (1) / Not Selected (0)')
+plt.title(f'CARS Selected Variables (K={len(selected_features_cars)})')
+plt.yticks([0, 1])
+plt.ylim(-0.2, 1.1)
+plt.legend()
+plt.grid(True, linestyle=':')
+plt.show()

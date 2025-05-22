@@ -1,0 +1,117 @@
+# Canonical Correlation Analysis
+# CCA Model Transfer
+# Canonical Correlation Analysis Model Transfer
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression
+from sklearn.cross_decomposition import CCA
+from sklearn.metrics import mean_squared_error
+
+n_wavelengths = 50       # Number of spectral points (wavelengths)
+n_samples_transfer = 60  # Number of transfer samples (needs to be >= n_components, preferably more)
+n_samples_new = 20       # Number of new samples measured only on the slave device
+n_cca_components = min(n_wavelengths, n_samples_transfer, 15) # Cap components for stability
+print(f"Number of wavelengths: {n_wavelengths}")
+print(f"Number of transfer samples: {n_samples_transfer}")
+print(f"Number of new samples: {n_samples_new}")
+print(f"Number of CCA components: {n_cca_components}")
+X_master_transfer = np.random.rand(n_samples_transfer, n_wavelengths)
+X_slave_transfer = np.random.rand(n_samples_transfer, n_wavelengths)
+X_slave_new = np.random.rand(n_samples_new, n_wavelengths)
+Y_transfer = np.random.rand(n_samples_transfer, 1) * 100 # Scale Y for example
+Y_new_hypothetical = np.random.rand(n_samples_new, 1) * 100
+print(f"\nMaster transfer spectra shape (X_master_transfer): {X_master_transfer.shape}")
+print(f"Slave transfer spectra shape (X_slave_transfer): {X_slave_transfer.shape}")
+print(f"Slave new spectra shape (X_slave_new): {X_slave_new.shape}")
+print(f"Transfer target variable shape (Y_transfer): {Y_transfer.shape}")
+print(f"Hypothetical new target shape (Y_new_hypothetical): {Y_new_hypothetical.shape}")
+print(f"\nFitting CCA with {n_cca_components} components...")
+cca = CCA(n_components=n_cca_components, scale=True)
+try:
+    cca.fit(X_master_transfer, X_slave_transfer)
+    Zm_transfer, Zs_transfer = cca.transform(X_master_transfer, X_slave_transfer) # Use lowercase y if sklearn >= 1.5
+    print("CCA fitted and transfer data transformed.")
+    print(f"Master transfer CVs shape (Zm_transfer): {Zm_transfer.shape}")
+    print(f"Slave transfer CVs shape (Zs_transfer): {Zs_transfer.shape}")
+except ValueError as e:
+    print(f"Error fitting/transforming with CCA: {e}")
+    print("Check if n_samples_transfer is sufficient and n_components is valid.")
+    exit()
+print("\nTraining prediction model on Master Canonical Variables (CVs)...")
+model_master_cca = LinearRegression()
+model_master_cca.fit(Zm_transfer, Y_transfer)
+print("Master model trained in CCA space.")
+print("\nLearning mapping from Slave CVs to Master CVs...")
+cv_mapper = LinearRegression()
+cv_mapper.fit(Zs_transfer, Zm_transfer)
+print("CV mapping model trained.")
+print("\nTransforming new slave data to Slave CVs...")
+try:
+    dummy_X_new = np.zeros((X_slave_new.shape[0], X_master_transfer.shape[1]))
+    _, Zs_new = cca.transform(X=dummy_X_new, y=X_slave_new) # Use lowercase y
+    print(f"New slave CVs shape (Zs_new): {Zs_new.shape}")
+except ValueError as e:
+     print(f"Error transforming new slave data: {e}")
+     exit()
+except Exception as e: # Catch other potential exceptions
+    print(f"An unexpected error occurred during transformation: {e}")
+    exit()
+print("\nEstimating Master CVs for new data using the mapping...")
+Zm_new_estimated = cv_mapper.predict(Zs_new)
+print(f"Estimated new Master CVs shape (Zm_new_estimated): {Zm_new_estimated.shape}")
+print("\nPredicting results for new samples using CCA-based model...")
+Y_pred_corrected = model_master_cca.predict(Zm_new_estimated)
+print(f"Predictions using CCA approach shape: {Y_pred_corrected.shape}")
+print("\nTraining and predicting using original data (for comparison)...")
+model_master_orig = LinearRegression()
+model_master_orig.fit(X_master_transfer, Y_transfer)
+Y_pred_original = model_master_orig.predict(X_slave_new)
+print(f"Predictions on original slave data shape: {Y_pred_original.shape}")
+print("\n--- Prediction Results (Example) ---")
+for i in range(min(5, n_samples_new)):
+    print(f"Sample {i+1}:")
+    print(f"  Hypothetical True Y: {Y_new_hypothetical[i, 0]:.2f}")
+    print(f"  Predicted Y (Original Slave Data): {Y_pred_original[i, 0]:.2f}")
+    print(f"  Predicted Y (CCA Corrected Path): {Y_pred_corrected[i, 0]:.2f}")
+mse_original = mean_squared_error(Y_new_hypothetical, Y_pred_original)
+mse_corrected = mean_squared_error(Y_new_hypothetical, Y_pred_corrected)
+print("\n--- Prediction Performance (MSE vs Hypothetical Y) ---")
+print(f"MSE using Original Slave Data: {mse_original:.4f}")
+print(f"MSE using CCA Transfer Path: {mse_corrected:.4f}")
+plt.figure(figsize=(12, 6))
+wavelengths_idx = np.arange(n_wavelengths)
+plt.subplot(1, 3, 1)
+sample_idx_transfer = 0
+plt.plot(wavelengths_idx, X_master_transfer[sample_idx_transfer, :], label=f'Master Transfer Sample {sample_idx_transfer+1}')
+plt.plot(wavelengths_idx, X_slave_transfer[sample_idx_transfer, :], label=f'Slave Transfer Sample {sample_idx_transfer+1}', linestyle='--')
+plt.title('Transfer Sample Spectra Example')
+plt.xlabel('Wavelength Index')
+plt.ylabel('Random Intensity')
+plt.legend()
+plt.subplot(1, 3, 2)
+sample_indices = np.arange(n_samples_new)
+plt.scatter(sample_indices, Y_new_hypothetical, label='Hypothetical True Y', marker='o', alpha=0.7)
+plt.scatter(sample_indices, Y_pred_original, label='Predicted Y (Original Slave)', marker='x', alpha=0.7)
+plt.scatter(sample_indices, Y_pred_corrected, label='Predicted Y (CCA Path)', marker='+', alpha=0.9, s=80)
+plt.title('Prediction Comparison for New Samples')
+plt.xlabel('New Sample Index')
+plt.ylabel('Predicted/Hypothetical Y Value')
+plt.legend()
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.subplot(1, 3, 3)
+min_val = min(Y_new_hypothetical.min(), Y_pred_original.min(), Y_pred_corrected.min()) * 0.9
+max_val = max(Y_new_hypothetical.max(), Y_pred_original.max(), Y_pred_corrected.max()) * 1.1
+plt.plot([min_val, max_val], [min_val, max_val], 'k--', label='Ideal (y=x)')
+plt.scatter(Y_new_hypothetical, Y_pred_original, label=f'Original (MSE={mse_original:.2f})', marker='x', alpha=0.7)
+plt.scatter(Y_new_hypothetical, Y_pred_corrected, label=f'CCA Path (MSE={mse_corrected:.2f})', marker='+', alpha=0.9, s=80)
+plt.title('Predicted vs. Hypothetical Y')
+plt.xlabel('Hypothetical True Y')
+plt.ylabel('Predicted Y')
+plt.legend()
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.axis('equal')
+plt.xlim(min_val, max_val)
+plt.ylim(min_val, max_val)
+plt.tight_layout()
+plt.show()
+print("\nCode execution finished.")

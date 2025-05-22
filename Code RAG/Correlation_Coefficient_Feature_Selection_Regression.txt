@@ -1,0 +1,41 @@
+# Correlation Coefficient
+# Correlation Coefficient Feature Selection For Regression Tasks
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+def correlation_feature_selection(
+        X: np.ndarray,
+        y: np.ndarray,
+        threshold: float = 0.3
+):
+    """
+    Perform feature selection for regression tasks based on correlation coefficients.
+    """
+    scaler_X = StandardScaler()
+    scaler_y = StandardScaler()
+    X_scaled = scaler_X.fit_transform(X)
+    y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).ravel()
+    try:
+        correlations = np.array([
+            np.corrcoef(X_scaled[:, i], y_scaled)[0, 1] for i in range(X.shape[1])
+        ])
+        correlations = np.nan_to_num(correlations, nan=0.0, posinf=0.0, neginf=0.0)
+        selected_indices = np.where(np.abs(correlations) > threshold)[0]
+        selected_features = X[:, selected_indices] if len(selected_indices) > 0 else np.array([])
+        return selected_features, selected_indices, correlations
+    except Exception as e:
+        return np.array([]), np.array([]), np.zeros(X.shape[1])
+threshold=0.5
+selected_features, selected_indices, correlations = correlation_feature_selection(
+        X, y, threshold=threshold
+)
+print("--- Correlation Coefficient Feature Selection Results ---")
+print(f"Original data shape: {X.shape}")
+print(f"Selected features shape: {selected_features.shape}")
+print(f"Selected feature indices: {selected_indices.tolist()}")
+if len(selected_indices) == 0:
+    print("Warning: No features were selected. Consider lowering the threshold.")

@@ -1,0 +1,74 @@
+# Ridge Regression Feature Selection
+# L2 Regularization
+# Ridge Regression Feature Selection For Regression
+import numpy as np
+from sklearn.linear_model import Ridge
+from sklearn.feature_selection import SelectFromModel
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+def ridge_feature_selection(
+        X: np.ndarray,
+        y: np.ndarray,
+        alpha: float = 1.0,
+        max_features = None,
+        threshold = 'mean'
+):
+    """
+    Perform feature selection for regression tasks using Ridge regression (L2 regularization).
+    """
+    if X.shape[0] != y.shape[0]:
+        raise ValueError("X and y must have same number of samples")
+    if not np.all(np.isfinite(X)) or not np.all(np.isfinite(y)):
+        raise ValueError("X or y contains non-finite values")
+    if alpha <= 0:
+        raise ValueError("alpha must be positive")
+    if max_features is not None and (max_features <= 0 or max_features > X.shape[1]):
+        raise ValueError("max_features must be between 1 and number of features")
+    scaler_X = StandardScaler()
+    scaler_y = StandardScaler()
+    X_scaled = scaler_X.fit_transform(X)
+    y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).ravel()
+    try:
+        estimator = Ridge(
+            alpha=alpha,
+            random_state=42
+        )
+        selector = SelectFromModel(
+            estimator=estimator,
+            max_features=max_features,
+            threshold=threshold
+        )
+        selector.fit(X_scaled, y_scaled)
+        selected_indices = selector.get_support(indices=True)
+        selected_features = X[:, selected_indices] if len(selected_indices) > 0 else np.array([])
+        coefficients = selector.estimator_.coef_
+        threshold_used = selector.threshold_
+        return selected_features, selected_indices, coefficients, threshold_used
+    except Exception as e:
+        return np.array([]), np.array([]), np.zeros(X.shape[1]), 0.0
+alpha=1.0
+max_features=50
+threshold='mean'
+selected_features, selected_indices, coefficients, threshold_used = ridge_feature_selection(
+        X, y,
+        alpha=alpha,
+        max_features=max_features,
+        threshold=threshold
+)
+print("--- Ridge Regression Feature Selection Results ---")
+print(f"Original data shape: {X.shape}")
+print(f"Selected features shape: {selected_features.shape}")
+print(f"Selected feature indices: {selected_indices.tolist()}")
+print(f"Threshold used: {threshold_used:.4f}")
+if len(selected_indices) == 0:
+    print("Warning: No features were selected. Consider decreasing alpha or adjusting threshold/max_features.")
+
+
+
+
+
+

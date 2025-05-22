@@ -1,0 +1,75 @@
+# MFA
+# mutual factor analysis
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import svd, pinv
+
+n_conditions = 6      # n_blocks1: e.g., pH levels
+n_measurements = 62   # n_blocks2: e.g., Temp points
+n_features = 500      # Spectral features
+k = 4                 # Number of components for SS
+np.random.seed(42) # for reproducibility
+d = np.random.randn(n_measurements, n_features, n_conditions)
+print(f"Random data 'd' shape: {d.shape}")
+try:
+    dd = np.transpose(d, (1, 0, 2))
+    Xc = np.hstack([dd[:, :, i] for i in range(n_conditions)])
+    U, s, Vt = svd(Xc, full_matrices=False) # U:(features,k'), s:(k',), Vt:(k', meas*cond)
+    P0 = np.zeros((n_features, k, n_conditions))
+    if k > U.shape[1]:
+         print(f"Warning: k={k} is larger than the number of calculated components ({U.shape[1]}). Using {U.shape[1]} components.")
+         k = U.shape[1] # Adjust k if necessary
+    for i in range(n_conditions):
+        P0[:, :, i] = U[:, :k]
+    P0_cond0 = P0[:, :, 0] # (features, k)
+    dd_cond0 = dd[:, :, 0] # (features, measurements)
+    SSE = P0_cond0 @ pinv(P0_cond0) @ dd_cond0 # (features, measurements)
+    U_sse, s_sse, _ = svd(SSE, full_matrices=False) # SVD of reconstructed data
+    sse_basis = U_sse[:, 0] # Shared basis vector (features,)
+    z = np.zeros(n_measurements)
+    SPE = np.zeros_like(dd) # (features, measurements, conditions)
+    for meas_idx in range(n_measurements):
+        z[meas_idx] = np.dot(dd[:, meas_idx, 0], sse_basis)
+        for cond_idx in range(n_conditions):
+            SPE[:, meas_idx, cond_idx] = dd[:, meas_idx, cond_idx] - z[meas_idx] * sse_basis
+    print("MFA calculations completed.")
+    analysis_successful = True
+except Exception as e:
+    print(f"An error occurred during MFA calculations: {e}")
+    z, SPE, SSE, P0, dd = None, None, None, None, None
+    analysis_successful = False
+if analysis_successful:
+    print("Plotting results...")
+    wv = np.arange(n_features) # Dummy wavelength/feature axis
+    measurement_indices = np.arange(n_measurements) # Dummy measurement axis variable
+    plt.figure()
+    plt.plot(wv, d[:, :, 0].T)
+    plt.title(f'Raw Spectra (Cond 0)')
+    plt.xlabel('Feature Index')
+    plt.ylabel('Intensity')
+    plt.grid(True)
+    plt.figure()
+    plt.plot(measurement_indices, z, 'o')
+    plt.xlabel('Measurement Index')
+    plt.ylabel('Shared Score (z)')
+    plt.title('z vs Measurement Index')
+    plt.grid(True)
+    plt.figure()
+    plt.plot(wv, SSE.mean(axis=1), color='black', linewidth=2)
+    plt.title('Mean SSE (Reconstr. Cond 0)')
+    plt.xlabel('Feature Index')
+    plt.ylabel('Intensity')
+    plt.grid(True)
+    plt.figure()
+    measurement_to_plot = 0
+    for i in range(n_conditions):
+        plt.plot(wv, SPE[:, measurement_to_plot, i], label=f'Cond {i}')
+    plt.title(f'SPE for First Measurement (Idx {measurement_to_plot})')
+    plt.xlabel('Feature Index')
+    plt.ylabel('Intensity')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("Cannot plot results due to calculation error.")

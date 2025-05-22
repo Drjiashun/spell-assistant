@@ -1,0 +1,105 @@
+# Backward Interval PLS
+# BiPLS
+# Backward Interval Partial Least Squares
+# Backward Interval Partial Least Squares Feature Selection For Regression
+import numpy as np
+import math
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import KFold
+from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import StandardScaler
+
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+def calculate_rmsecv(X: np.ndarray, y: np.ndarray, n_comp: int, cv_folds: int) -> float:
+    if X.shape[1] == 0 or n_comp <= 0:
+        return np.inf
+    max_possible_comp = min(X.shape[1], X.shape[0] - math.ceil(X.shape[0] / cv_folds))
+    if max_possible_comp <= 0:
+        return np.inf
+    actual_n_comp = min(n_comp, max_possible_comp)
+    try:
+        model = PLSRegression(n_components=actual_n_comp)
+        cv = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
+        y_pred = np.zeros_like(y)
+        for train_idx, test_idx in cv.split(X):
+            X_train, X_test = X[train_idx], X[test_idx]
+            y_train = y[train_idx]
+            model.fit(X_train, y_train)
+            y_pred[test_idx] = model.predict(X_test).ravel()
+        return np.sqrt(mean_squared_error(y, y_pred))
+    except Exception as e:
+        return np.inf
+def bipls_feature_selection(
+        X: np.ndarray,
+        y: np.ndarray,
+        n_intervals: int = 10,
+        max_pls_components: int = 5,
+        cv_folds: int = 5,
+        min_intervals_to_keep: int = 2,
+        rmsecv_increase_threshold: float = 1.05
+):
+    """
+    Backward Interval PLS for feature selection in regression tasks.
+    """
+    scaler_X = StandardScaler()
+    scaler_y = StandardScaler()
+    X_scaled = scaler_X.fit_transform(X)
+    y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).ravel()
+    n_features = X.shape[1]
+    interval_size = math.ceil(n_features / n_intervals)
+    intervals = [
+        list(range(i * interval_size, min((i + 1) * interval_size, n_features)))
+        for i in range(n_intervals) if i * interval_size < n_features
+    ]
+    active_intervals = intervals.copy()
+    active_features = list(range(n_features))
+    rmsecv_history = []
+    removed_intervals = []
+    current_rmsecv = calculate_rmsecv(X_scaled[:, active_features], y_scaled, max_pls_components, cv_folds)
+    rmsecv_history.append(current_rmsecv)
+    print(f"Initial RMSECV: {current_rmsecv:.4f}, Features: {len(active_features)}, Intervals: {len(active_intervals)}")
+    iteration = 0
+    while len(active_intervals) > min_intervals_to_keep:
+        iteration += 1
+        rmsecv_scores = []
+        feature_sets = []
+        for i, interval in enumerate(active_intervals):
+            temp_features = [idx for idx in active_features if idx not in interval]
+            rmsecv = calculate_rmsecv(X_scaled[:, temp_features], y_scaled, max_pls_components, cv_folds)
+            rmsecv_scores.append(rmsecv)
+            feature_sets.append(temp_features)
+        best_idx = np.argmin(rmsecv_scores)
+        best_rmsecv = rmsecv_scores[best_idx]
+        if best_rmsecv > current_rmsecv * rmsecv_increase_threshold:
+            print(
+                f"Stopping: RMSECV increased beyond threshold ({best_rmsecv:.4f} > {current_rmsecv * rmsecv_increase_threshold:.4f})")
+            break
+        removed_interval = active_intervals.pop(best_idx)
+        active_features = feature_sets[best_idx]
+        current_rmsecv = best_rmsecv
+        rmsecv_history.append(current_rmsecv)
+        removed_intervals.append(f"{removed_interval[0]}-{removed_interval[-1]}")
+        if not active_features:
+            print("Stopping: No features remaining")
+            break
+    return np.array(sorted(active_features)), rmsecv_history, removed_intervals
+n_intervals=15
+max_pls_components=5
+cv_folds=5
+min_intervals_to_keep=2
+selected_features, rmsecv_history, removed_intervals = bipls_feature_selection(
+        X, y,
+        n_intervals=n_intervals,
+        max_pls_components=max_pls_components,
+        cv_folds= cv_folds,
+        min_intervals_to_keep=min_intervals_to_keep
+    )
+print("\n--- BiPLS Results ---")
+print(f"Selected features: {len(selected_features)} features at indices {selected_features}")
+print(f"Final data shape: ({X.shape[0]}, {len(selected_features)})")
+min_rmsecv_idx = np.argmin(rmsecv_history)
+print(f"\nBest RMSECV: {rmsecv_history[min_rmsecv_idx]:.4f} at iteration {min_rmsecv_idx}")

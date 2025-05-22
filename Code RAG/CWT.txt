@@ -1,0 +1,102 @@
+# CWT
+# Continuous Wavelet Transform
+import numpy as np
+import matplotlib.pyplot as plt
+import pywt
+
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+print(f"Input data shape (X): {X.shape}")
+feature_axis = np.arange(spectrum_length)
+wavelet_name = 'morl'
+# Choose ONE of the following scale definitions:
+scales_input = 20 # Single scale example
+# scales_input = np.arange(20, 50) # Multi-scale example
+scales = np.atleast_1d(scales_input)
+total_scales = len(scales)
+min_scale_used = scales[0]
+max_scale_used = scales[-1]
+print(f"\nPerforming CWT on {num_samples} spectra using '{wavelet_name}'...")
+if total_scales == 1:
+    print(f"Using single scale: {scales[0]}")
+else:
+    print(f"Using scales: {min_scale_used} to {max_scale_used} ({total_scales} scales)")
+
+dtype = np.complex128 if pywt.ContinuousWavelet(wavelet_name).complex_cwt else np.float64
+cwt_coeffs_all_3d = np.zeros((num_samples, total_scales, spectrum_length), dtype=dtype)
+
+for i in range(num_samples):
+    spectrum = X[i, :]
+    coeffs, frequencies = pywt.cwt(spectrum, scales, wavelet_name)
+    cwt_coeffs_all_3d[i, :, :] = coeffs
+print(f"Intermediate CWT coefficients tensor shape: {cwt_coeffs_all_3d.shape}")
+
+if total_scales == 1:
+    cwt_output = cwt_coeffs_all_3d.reshape(num_samples, spectrum_length)
+    print(f"Final output shape (single scale): {cwt_output.shape}")
+else:
+    cwt_output = cwt_coeffs_all_3d
+    print(f"Final output shape (multi-scale): {cwt_output.shape}")
+
+sample_index_to_plot = 0
+example_spectrum = X[sample_index_to_plot, :]
+example_coeffs_3d = cwt_coeffs_all_3d[sample_index_to_plot, :, :] # Shape (total_scales, spectrum_length)
+plt.figure(figsize=(10, 4))
+plt.plot(feature_axis, example_spectrum, label=f'Spectrum Sample {sample_index_to_plot}')
+plt.title(f'Original Spectrum (Sample {sample_index_to_plot})')
+plt.xlabel('Feature Index')
+plt.ylabel('Intensity / Value')
+plt.legend()
+plt.grid(True, linestyle=':')
+plt.show()
+
+if total_scales > 1:
+
+    plt.figure(figsize=(10, 5))
+    magnitude_coeffs = np.abs(example_coeffs_3d) # Use the 3D slice here
+    plt.imshow(magnitude_coeffs, extent=[feature_axis[0], feature_axis[-1], min_scale_used, max_scale_used],
+               cmap='viridis', aspect='auto', origin='lower')
+    plt.colorbar(label='Magnitude of CWT Coefficients')
+    plt.ylabel('Scale')
+    plt.xlabel('Feature Index')
+    plt.title(f'Scalogram for Sample {sample_index_to_plot} ("{wavelet_name}" wavelet, Scales {min_scale_used:.1f}-{max_scale_used:.1f})')
+    plt.show()
+
+    plt.figure(figsize=(10, 4))
+    mid_idx = total_scales // 2
+    end_idx = total_scales - 1
+    scale_indices_to_plot = sorted(list(set([0, mid_idx, end_idx]))) # Unique indices
+
+    for idx in scale_indices_to_plot:
+        scale_val = scales[idx]
+        if dtype == np.complex128:
+            plt.plot(feature_axis, np.real(example_coeffs_3d[idx, :]), label=f'Real Part @ Scale {scale_val:.1f}')
+        else:
+            plt.plot(feature_axis, example_coeffs_3d[idx, :], label=f'Coeffs @ Scale {scale_val:.1f}')
+
+    plt.title(f'CWT Coefficients at Selected Scales (Sample {sample_index_to_plot})')
+    plt.xlabel('Feature Index')
+    plt.ylabel('Coefficient Value')
+    plt.legend()
+    plt.grid(True, linestyle=':')
+    plt.show()
+
+elif total_scales == 1:
+    plt.figure(figsize=(10, 4))
+    coeffs_single_scale_1d = example_coeffs_3d[0, :]
+    scale_val = scales[0] # The single scale value
+
+    if dtype == np.complex128:
+        plt.plot(feature_axis, np.real(coeffs_single_scale_1d), label=f'Real Part @ Scale {scale_val}')
+    else:
+        plt.plot(feature_axis, coeffs_single_scale_1d, label=f'Coeffs @ Scale {scale_val}')
+
+    plt.title(f'CWT Coefficients at Scale {scale_val} (Sample {sample_index_to_plot})')
+    plt.xlabel('Feature Index')
+    plt.ylabel('Coefficient Value')
+    plt.legend()
+    plt.grid(True, linestyle=':')
+    plt.show()

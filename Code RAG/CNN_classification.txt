@@ -1,0 +1,221 @@
+# CNN classification
+# Convolutional Neural Network classification
+# CNN
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, roc_auc_score, average_precision_score, roc_curve, precision_recall_curve
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 200
+num_classes = 3
+data = np.random.randn(num_samples, spectrum_length)
+labels = np.random.randint(0, num_classes, num_samples)
+unique_classes = np.unique(labels)
+target_names = [f'Class_{i}' for i in unique_classes]
+scaler_X = StandardScaler()
+data = scaler_X.fit_transform(data)
+
+X_temp, test_data, y_temp, test_labels = train_test_split(
+    data, labels, test_size=0.2, random_state=42, stratify=labels
+)
+train_data, val_data, train_labels, val_labels = train_test_split(
+    X_temp, y_temp, test_size=0.2, random_state=42, stratify=y_temp
+)
+# Convert data shape to cnn input form,data:(num_samples,1,spectrum_length)
+train_data = np.reshape(train_data,(train_data.shape[0],1,train_data.shape[1]))
+test_data = np.reshape(test_data,(test_data.shape[0],1,test_data.shape[1]))
+val_data = np.reshape(val_data,(val_data.shape[0],1,val_data.shape[1]))
+
+class SpectrumDataset(Dataset):
+    def __init__(self, data, labels):
+        self.data = torch.tensor(data, dtype=torch.float32)
+        self.labels = torch.tensor(labels, dtype=torch.long)
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx], self.labels[idx]
+train_dataset = SpectrumDataset(train_data, train_labels)
+val_dataset = SpectrumDataset(val_data, val_labels)
+test_dataset = SpectrumDataset(test_data, test_labels)
+batch_size = 32
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+class SpectrumCNN(nn.Module):
+    def __init__(self, input_dim,input_length, num_classes):
+        super(SpectrumCNN, self).__init__()
+        self.conv1 = nn.Conv1d(input_dim, 16, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm1d(16)
+        self.conv2 = nn.Conv1d(16, 32, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm1d(32)
+        self.pool = nn.MaxPool1d(2)
+        self.relu = nn.ReLU()
+        self.input_length = input_length
+        self.num_classes = num_classes
+        self.flattened_size = None
+        self.fc1 = None
+        self.fc2 = nn.Linear(128, num_classes)
+
+    def forward(self, x):
+        if self.flattened_size is None:
+            temp = self.pool(self.relu(self.bn1(self.conv1(x))))
+            temp = self.pool(self.relu(self.bn2(self.conv2(temp))))
+            self.flattened_size = temp.view(temp.size(0), -1).size(1)
+            self.fc1 = nn.Linear(self.flattened_size, 128).to(x.device)
+
+        x = self.pool(self.relu(self.bn1(self.conv1(x))))
+        x = self.pool(self.relu(self.bn2(self.conv2(x))))
+        x = x.view(-1, self.flattened_size)
+        x = self.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print("Using device:", device)
+model = SpectrumCNN(input_dim=train_data.shape[1],input_length=spectrum_length, num_classes=num_classes).to(device)
+loss_function = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.005)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+
+num_epochs = 1000
+patience = 20
+best_val_loss = float('inf')
+epochs_no_improve = 0
+
+train_losses = []
+val_losses = []
+
+for epoch in range(num_epochs):
+    model.train()
+    train_loss = 0
+    for batch_data, batch_labels in train_loader:
+        batch_data, batch_labels = batch_data.to(device), batch_labels.to(device)
+        optimizer.zero_grad()
+        predictions = model(batch_data)
+        loss = loss_function(predictions, batch_labels)
+        loss.backward()
+        optimizer.step()
+        train_loss += loss.item()
+    train_loss /= len(train_loader)
+    train_losses.append(train_loss)
+
+    model.eval()
+    val_loss = 0
+    with torch.no_grad():
+        for batch_data, batch_labels in val_loader:
+            batch_data, batch_labels = batch_data.to(device), batch_labels.to(device)
+            predictions = model(batch_data)
+            loss = loss_function(predictions, batch_labels)
+            val_loss += loss.item()
+    val_loss /= len(val_loader)
+    val_losses.append(val_loss)
+
+    scheduler.step(val_loss)
+
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        epochs_no_improve = 0
+
+    else:
+        epochs_no_improve += 1
+        if epochs_no_improve >= patience:
+            print(f"Early stopping triggered after {epoch + 1} epochs")
+            break
+
+    print(f"Epoch {epoch + 1}/{num_epochs}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, LR: {optimizer.param_groups[0]['lr']:.6f}")
+
+model.eval()
+all_preds = []
+all_labels = []
+all_probs = []
+test_loss = 0
+with torch.no_grad():
+    for batch_data, batch_labels in test_loader:
+        batch_data, batch_labels = batch_data.to(device), batch_labels.to(device)
+        predictions = model(batch_data)
+        loss = loss_function(predictions, batch_labels)
+        test_loss += loss.item()
+        probs = torch.softmax(predictions, dim=1)
+        preds = torch.argmax(probs, dim=1)
+        all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(batch_labels.cpu().numpy())
+        all_probs.extend(probs.cpu().numpy())
+test_loss /= len(test_loader)
+
+all_preds = np.array(all_preds)
+all_labels = np.array(all_labels)
+all_probs = np.array(all_probs)
+# import
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, roc_auc_score, average_precision_score, roc_curve, precision_recall_curve
+accuracy = (all_preds == all_labels).mean() * 100
+auc_scores = []
+for i in range(num_classes):
+    true_binary = (all_labels == i).astype(int)
+    prob_class = all_probs[:, i]
+    auc = roc_auc_score(true_binary, prob_class)
+    auc_scores.append(auc)
+mean_auc = np.mean(auc_scores)
+
+aupr_scores = []
+for i in range(num_classes):
+    true_binary = (all_labels == i).astype(int)
+    prob_class = all_probs[:, i]
+    aupr = average_precision_score(true_binary, prob_class)
+    aupr_scores.append(aupr)
+mean_aupr = np.mean(aupr_scores)
+print(f"Test Loss: {test_loss:.4f}")
+print(f"Test Accuracy: {accuracy:.2f}%")
+print(f"Mean AUC (One-vs-Rest): {mean_auc:.4f}")
+print(f"Mean AUPR (One-vs-Rest): {mean_aupr:.4f}")
+# import
+import matplotlib.pyplot as plt
+plt.figure(figsize=(10, 5))
+plt.plot(train_losses, label='Train Loss')
+plt.plot(val_losses, label='Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Training and Validation Loss')
+plt.legend()
+plt.grid()
+plt.show()
+
+cm = confusion_matrix(all_labels, all_preds)
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=target_names)
+disp.plot(cmap='Blues')
+plt.title('Confusion Matrix')
+plt.show()
+
+plt.figure(figsize=(12, 5))
+plt.subplot(1, 2, 1)
+for i in range(num_classes):
+    true_binary = (all_labels == i).astype(int)
+    fpr, tpr, _ = roc_curve(true_binary, all_probs[:, i])
+    plt.plot(fpr, tpr, label=f'{target_names[i]} (AUC = {auc_scores[i]:.2f})')
+plt.plot([0, 1], [0, 1], 'k--')
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC Curve')
+plt.legend()
+plt.grid()
+
+plt.subplot(1, 2, 2)
+for i in range(num_classes):
+    true_binary = (all_labels == i).astype(int)
+    precision, recall, _ = precision_recall_curve(true_binary, all_probs[:, i])
+    plt.plot(recall, precision, label=f'{target_names[i]} (AUPR = {aupr_scores[i]:.2f})')
+plt.xlabel('Recall')
+plt.ylabel('Precision')
+plt.title('Precision-Recall Curve')
+plt.legend()
+plt.grid()
+plt.tight_layout()
+plt.show()

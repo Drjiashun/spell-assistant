@@ -1,0 +1,36 @@
+# Ridge Regression
+# L2 Regularization
+# L2-regularized regression
+# L2-Regularization
+import numpy as np
+from sklearn.linear_model import Ridge
+from sklearn.feature_selection import SelectFromModel
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+data = np.random.randn(100, 5)
+
+true_coef = np.array([2.5, 0, -1.5, 0.8, 0])
+target = data @ true_coef + np.random.normal(0, 0.5, 100)
+
+
+scaler = StandardScaler()
+data_scaled = scaler.fit_transform(data)
+
+estimator = Ridge(alpha=1.0, random_state=42)
+
+selector = SelectFromModel(estimator, max_features=3, threshold=-np.inf)
+
+selector.fit(data_scaled, target)
+selected_features = selector.transform(data_scaled)
+
+
+fitted_estimator = selector.estimator_
+
+coefficients = fitted_estimator.coef_
+
+print(f"Original data shape: {data_scaled.shape}")
+print(f"Selected features shape: {selected_features.shape}")
+print(f"Selected feature indices: {selector.get_support(indices=True)}")
+print(f"Coefficients of the Ridge model (on scaled data): {coefficients}")
+print(f"Absolute values of coefficients: {np.abs(coefficients)}")
+print(f"Threshold used by SelectFromModel: {selector.threshold_}")

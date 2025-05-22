@@ -1,0 +1,101 @@
+# Interval PLS feature selection for classification tasks
+# Interval PLS
+# iPLS
+# Interval Partial Least Squares
+import numpy as np
+import math
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import KFold
+from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+def calculate_misclassification_rate(X: np.ndarray, y: np.ndarray, n_comp: int, cv_folds: int) -> float:
+    """
+    Calculate misclassification rate for given features using cross-validation with PLS-DA.
+    """
+    if X.shape[1] == 0 or n_comp <= 0:
+        return np.inf
+    max_possible_comp = min(X.shape[1], X.shape[0] - math.ceil(X.shape[0] / cv_folds))
+    if max_possible_comp <= 0:
+        return np.inf
+    actual_n_comp = min(n_comp, max_possible_comp)
+    try:
+        model = PLSRegression(n_components=actual_n_comp)
+        cv = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
+        y_pred = np.zeros_like(y, dtype=float)
+        for train_idx, test_idx in cv.split(X):
+            X_train, X_test = X[train_idx], X[test_idx]
+            y_train = y[train_idx]
+            model.fit(X_train, y_train)
+            y_pred[test_idx] = model.predict(X_test).ravel()
+        y_pred_class = (y_pred >= 0.5).astype(int) if y.max() <= 1 else np.argmax(y_pred, axis=1)
+        return 1.0 - accuracy_score(y, y_pred_class)
+    except Exception as e:
+        return np.inf
+def ipls_feature_selection_classification(
+        X: np.ndarray,
+        y: np.ndarray,
+        n_intervals: int = 10,
+        max_pls_components: int = 5,
+        cv_folds: int = 5
+):
+    """
+    Interval PLS (iPLS) for feature selection in classification tasks using PLS-DA.
+    """
+    scaler_X = StandardScaler()
+    X_scaled = scaler_X.fit_transform(X)
+    le = LabelEncoder()
+    y_encoded = le.fit_transform(y)
+    y_pls = y_encoded.astype(float) if len(le.classes_) == 2 else y_encoded
+    n_features = X.shape[1]
+    interval_size = math.ceil(n_features / n_intervals)
+    intervals = [
+        (i * interval_size, min((i + 1) * interval_size, n_features))
+        for i in range(n_intervals) if i * interval_size < n_features
+    ]
+    interval_misclassification = []
+    interval_indices = []
+    print(f"Total features: {n_features}")
+    print(f"Number of intervals: {len(intervals)}")
+    print(f"Approximate interval size: {interval_size}\n")
+    for i, (start_idx, end_idx) in enumerate(intervals):
+        if start_idx >= end_idx:
+            continue
+        X_interval = X_scaled[:, start_idx:end_idx]
+        misclassification = calculate_misclassification_rate(X_interval, y_pls, max_pls_components, cv_folds)
+        interval_misclassification.append(misclassification)
+        interval_indices.append((start_idx, end_idx))
+        print(f"Interval {i + 1} ({start_idx}-{end_idx - 1}): Misclassification Rate = {misclassification:.4f}")
+    global_misclassification = calculate_misclassification_rate(X_scaled, y_pls, max_pls_components, cv_folds)
+    print(f"\nGlobal PLS-DA Model: Misclassification Rate = {global_misclassification:.4f}")
+    if not interval_misclassification:
+        return np.array([]), np.array([]), np.inf, [], []
+    best_interval_idx = np.argmin(interval_misclassification)
+    best_misclassification = interval_misclassification[best_interval_idx]
+    best_start, best_end = interval_indices[best_interval_idx]
+    selected_indices = np.arange(best_start, best_end)
+    selected_features = X[:, selected_indices]
+    return selected_features, selected_indices, best_misclassification, interval_misclassification, interval_indices
+n_intervals = 15
+max_pls_components = 5
+cv_folds = 5
+selected_features, selected_indices, best_misclassification, interval_misclassification, interval_indices = \
+        ipls_feature_selection_classification(
+            X, y,
+            n_intervals=n_intervals,
+            max_pls_components=max_pls_components,
+            cv_folds=cv_folds
+)
+print("\n--- iPLS Classification Results ---")
+print(f"Best interval index: {np.argmin(interval_misclassification) + 1}")
+print(f"Best interval Misclassification Rate: {best_misclassification:.4f}")
+print(f"Indices of selected interval: {interval_indices[np.argmin(interval_misclassification)][0]} to "
+          f"{interval_indices[np.argmin(interval_misclassification)][1] - 1}")
+print(f"Original data shape: {X.shape}")
+print(f"Selected features shape: {selected_features.shape}")
+print(f"Selected feature indices: {selected_indices.tolist()}")

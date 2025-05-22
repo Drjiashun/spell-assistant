@@ -1,0 +1,196 @@
+# Artificial Neural Network
+# ANN
+# ANN regression
+# Artificial Neural Network regression
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import TensorDataset, DataLoader
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score
+from scipy.stats import pearsonr, spearmanr
+from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+n_targets = 1
+X_all = np.random.randn(num_samples, spectrum_length)
+y_true_all = np.random.uniform(0, 10, num_samples)
+scaler_X = StandardScaler()
+X_all_scaled = scaler_X.fit_transform(X_all)
+X_temp, X_test_np, y_temp, y_test_np = train_test_split(
+    X_all_scaled, y_true_all, test_size=0.2, random_state=42
+)
+X_train_np, X_val_np, y_train_np, y_val_np = train_test_split(
+    X_temp, y_temp, test_size=0.2, random_state=42
+)
+y_train_np = y_train_np.reshape(-1, 1)
+y_test_np = y_test_np.reshape(-1, 1)
+y_val_np = y_val_np.reshape(-1, 1)
+X_train = torch.tensor(X_train_np, dtype=torch.float32)
+y_train = torch.tensor(y_train_np, dtype=torch.float32)
+X_val = torch.tensor(X_val_np, dtype=torch.float32)
+y_val = torch.tensor(y_val_np, dtype=torch.float32)
+X_test = torch.tensor(X_test_np, dtype=torch.float32)
+y_test = torch.tensor(y_test_np, dtype=torch.float32)
+
+batch_size = 32
+train_dataset = TensorDataset(X_train, y_train)
+val_dataset = TensorDataset(X_val, y_val)
+test_dataset = TensorDataset(X_test, y_test)
+train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=False)
+test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False)
+
+
+class MLP(nn.Module):
+    def __init__(self, input_size, hidden_size1, hidden_size2, output_size):
+        super(MLP, self).__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size1)
+        self.bn1 = nn.BatchNorm1d(hidden_size1)
+        self.relu1 = nn.ReLU()
+        self.fc2 = nn.Linear(hidden_size1, hidden_size2)
+        self.bn2 = nn.BatchNorm1d(hidden_size2)
+        self.relu2 = nn.ReLU()
+        self.dropout = nn.Dropout(0.1)
+        self.fc3 = nn.Linear(hidden_size2, output_size)
+
+    def forward(self, x):
+        out = self.fc1(x)
+        out = self.bn1(out)
+        out = self.relu1(out)
+        out = self.fc2(out)
+        out = self.bn2(out)
+        out = self.relu2(out)
+        out = self.dropout(out)
+        out = self.fc3(out)
+        return out
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Using device: {device}")
+input_dim = spectrum_length
+hidden_dim1 = 256
+hidden_dim2 = 64
+output_dim = n_targets
+learning_rate = 0.005
+model = MLP(input_dim, hidden_dim1, hidden_dim2, output_dim).to(device)
+criterion = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+
+num_epochs = 1000
+patience = 20
+best_val_loss = float('inf')
+epochs_no_improve = 0
+
+train_losses = []
+val_losses = []
+
+print("\nStarting Training...")
+for epoch in range(num_epochs):
+    model.train()
+    train_loss = 0.0
+    for i, (inputs, targets) in enumerate(train_loader):
+        inputs = inputs.to(device)
+        targets = targets.to(device)
+        outputs = model(inputs)
+        loss = criterion(outputs.squeeze(), targets.squeeze())
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        train_loss += loss.item()
+
+    avg_train_loss = train_loss / len(train_loader)
+    train_losses.append(avg_train_loss)
+
+    model.eval()
+    val_loss = 0.0
+    with torch.no_grad():
+        for inputs, targets in val_loader:
+            inputs = inputs.to(device)
+            targets = targets.to(device)
+            outputs = model(inputs)
+            loss = criterion(outputs.squeeze(), targets.squeeze())
+            val_loss += loss.item()
+
+    avg_val_loss = val_loss / len(val_loader)
+    val_losses.append(avg_val_loss)
+    scheduler.step(avg_val_loss)
+    if avg_val_loss < best_val_loss:
+        best_val_loss = avg_val_loss
+        epochs_no_improve = 0
+    else:
+        epochs_no_improve += 1
+        if epochs_no_improve >= patience:
+            print(f"Early stopping triggered after {epoch + 1} epochs")
+            break
+
+    if (epoch + 1) % 10 == 0:
+        print(f'Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}')
+
+print("Training Finished.")
+
+model.eval()
+y_pred_list = []
+y_test_list = []
+with torch.no_grad():
+    test_loss = 0.0
+    for inputs, targets in test_loader:
+        inputs = inputs.to(device)
+        targets = targets.to(device)
+        outputs = model(inputs)
+        loss = criterion(outputs.squeeze(), targets.squeeze())
+        test_loss += loss.item()
+
+        y_pred_list.append(outputs.cpu().numpy())
+        y_test_list.append(targets.cpu().numpy())
+
+y_pred_np = np.concatenate(y_pred_list, axis=0)
+y_test_np = np.concatenate(y_test_list, axis=0)
+avg_test_loss = test_loss / len(test_loader)
+# Must import again
+from sklearn.metrics import mean_squared_error, r2_score
+mse = mean_squared_error(y_test_np.squeeze(), y_pred_np.squeeze())
+r2 = r2_score(y_test_np.squeeze(), y_pred_np.squeeze())
+# Must import again
+from scipy.stats import pearsonr, spearmanr
+pearson_corr, _ = pearsonr(y_test_np.squeeze(), y_pred_np.squeeze())
+spearman_corr, _ = spearmanr(y_test_np.squeeze(), y_pred_np.squeeze())
+print(f"\nShape of X_train: {X_train.shape}")
+print(f"Shape of y_train: {y_train.shape}")
+print(f"Shape of X_val: {X_val.shape}")
+print(f"Shape of y_val: {y_val.shape}")
+print(f"Shape of X_test: {X_test.shape}")
+print(f"Shape of y_test: {y_test.shape}")
+print(f"Shape of y_pred_np: {y_pred_np.shape}")
+
+print("\nPrediction Performance on Test Set:")
+print(f"  Test Loss (MSE): {avg_test_loss:.4f}")
+print(f"Pearson Correlation: {pearson_corr:.4f}")
+print(f"Spearman Correlation: {spearman_corr:.4f}")
+print(f"  RMSE: {np.sqrt(mse):.4f}")
+print(f"  R^2:  {r2:.4f}")
+# Must import again
+import matplotlib.pyplot as plt
+plt.figure(figsize=(10, 5))
+plt.plot(train_losses, label='Train Loss')
+plt.plot(val_losses, label='Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss (MSE)')
+plt.title('Training and Validation Loss')
+plt.legend()
+plt.grid()
+plt.show()
+
+plt.figure(figsize=(10, 5))
+plt.scatter(y_test_np, y_pred_np, alpha=0.5)
+plt.plot([y_test_np.min(), y_test_np.max()], [y_test_np.min(), y_test_np.max()], 'r--', label='Perfect Prediction')
+plt.xlabel('True Values')
+plt.ylabel('Predicted Values')
+plt.title('Predicted vs. True Values')
+plt.legend()
+plt.grid()
+plt.show()

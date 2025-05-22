@@ -1,0 +1,85 @@
+# parallel factor analysis
+# PARAFAC
+import numpy as np
+import torch
+import torch.optim as optim
+from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
+
+torch.manual_seed(42)
+np.random.seed(42)
+
+N_SAMPLES, N_FEATURES, N_CONDITIONS = 62, 200, 6
+RANK, TRUE_RANK = 3, 3
+NOISE_LEVEL = 0.2
+N_ITER_MAX, TOL, LEARNING_RATE = 3000, 1e-6, 0.01
+
+def simulate_data(n_s, n_f, n_c, true_rank, noise_level):
+    A_true = torch.randn(n_s, true_rank)
+    B_true = torch.randn(n_f, true_rank)
+    C_true = torch.randn(n_c, true_rank)
+    ideal_tensor = torch.einsum('ir,jr,kr->ijk', A_true, B_true, C_true)
+    noise = torch.randn_like(ideal_tensor) * noise_level
+    data_tensor = ideal_tensor + noise
+    feature_axis = torch.linspace(400, 1400, n_f)
+    condition_axis = torch.arange(n_c)
+    print(f"Simulated data: ({n_s}, {n_f}, {n_c})")
+    return data_tensor, feature_axis, condition_axis
+
+def parafac_decomposition(tensor, rank, n_iter_max=500, tol=1e-6, lr=0.01):
+    I, J, K = tensor.shape
+    A = torch.randn(I, rank, requires_grad=True)
+    B = torch.randn(J, rank, requires_grad=True)
+    C = torch.randn(K, rank, requires_grad=True)
+    optimizer = optim.Adam([A, B, C], lr=lr)
+    print(f"Running PARAFAC (Rank {rank})...")
+    prev_loss = float('inf')
+    for iteration in range(n_iter_max):
+        optimizer.zero_grad()
+        reconstructed = torch.einsum('ir,jr,kr->ijk', A, B, C)
+        loss = torch.norm(tensor - reconstructed, p='fro') ** 2
+        loss.backward()
+        optimizer.step()
+        with torch.no_grad():
+            for r in range(rank):
+                norm_a = torch.norm(A[:,r]); norm_b = torch.norm(B[:,r]); norm_c = torch.norm(C[:,r])
+                scale = (norm_a * norm_b * norm_c)**(1/3)
+                if scale > 1e-9: A[:,r]*=(scale/norm_a); B[:,r]*=(scale/norm_b); C[:,r]*=(scale/norm_c)
+        loss_item = loss.item()
+        if iteration % 100 == 0: print(f"Iter {iteration}, Loss: {loss_item:.4f}")
+        if abs(loss_item - prev_loss) < tol and iteration > 10: break
+        prev_loss = loss_item
+
+    print(f"Final Loss: {prev_loss:.4f}")
+    return A.detach(), B.detach(), C.detach()
+def plot_results(A, B, C, feature_axis, condition_axis, rank):
+    print("Plotting factors...")
+    plt.figure(figsize=(6, 4))
+    for r in range(rank): plt.plot(condition_axis.numpy(), C[:, r], marker='o', label=f'Comp {r+1}')
+    plt.title('Condition Loadings'); plt.xlabel('Condition'); plt.ylabel('Loading'); plt.legend(); plt.grid(True); plt.show()
+    plt.figure(figsize=(7, 4))
+    step = max(1, len(feature_axis) // 100) # Plot ~100 points
+    for r in range(rank): plt.plot(feature_axis.numpy()[::step], B[::step, r], label=f'Comp {r+1}')
+    plt.title(f'Feature Loadings (1/{step} points)'); plt.xlabel('Feature'); plt.ylabel('Loading'); plt.legend(); plt.grid(True); plt.show()
+    if rank >= 2:
+        plt.figure(figsize=(6, 5))
+        plt.scatter(A[:, 0], A[:, 1], alpha=0.7) # No labels needed now
+        plt.title('Sample Scores (Comp 1 vs 2)'); plt.xlabel('Component 1'); plt.ylabel('Component 2'); plt.grid(True); plt.show()
+
+data_tensor, feature_axis, condition_axis = simulate_data(
+        N_SAMPLES, N_FEATURES, N_CONDITIONS, TRUE_RANK, NOISE_LEVEL
+)
+I, J, K = data_tensor.shape
+data_reshaped = data_tensor.permute(0, 1, 2).reshape(I, -1)
+scaler = StandardScaler()
+data_scaled_reshaped = scaler.fit_transform(data_reshaped.numpy())
+data_scaled_tensor = torch.tensor(data_scaled_reshaped.reshape(I, J, K), dtype=torch.float32)
+print("Data scaled.")
+A_est, B_est, C_est = parafac_decomposition(
+        data_scaled_tensor, # Use scaled data
+        rank=RANK,
+        n_iter_max=N_ITER_MAX,
+        tol=TOL,
+        lr=LEARNING_RATE
+)
+plot_results(A_est, B_est, C_est, feature_axis, condition_axis, RANK)

@@ -1,0 +1,74 @@
+# C value feature selection
+# C value
+# C value feature selection for classification
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
+from sklearn.feature_selection import f_classif
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+from sklearn.model_selection import cross_val_score, StratifiedKFold
+import warnings
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+print(f"Input data shape (X): {X.shape}")
+print(f"Target data shape (y): {y.shape}")
+print(f"Class distribution: {np.unique(y, return_counts=True)}")
+
+scaler_X = StandardScaler()
+X_scaled = scaler_X.fit_transform(X)
+print("X data standardized.")
+
+def calculate_anova_f_values(X, y):
+    """ Calculates ANOVA F-value between each feature in X and class labels y. """
+    n_samples, n_features = X.shape
+    if len(np.unique(y)) < 2:
+         warnings.warn("Only one class present. Cannot calculate F-values.", RuntimeWarning)
+         return np.zeros(n_features)
+
+    print("Calculating ANOVA F-values...")
+    f_values, p_values = f_classif(X, y)
+    f_values = np.nan_to_num(f_values, nan=0.0)
+    return f_values
+f_values = calculate_anova_f_values(X_scaled, y)
+
+N_FEATURES_TO_SELECT = 50 # Select top N features with highest F-value
+if N_FEATURES_TO_SELECT >= spectrum_length:
+    selected_features_f = np.arange(spectrum_length)
+    f_threshold_value = 0.0 # Effectively includes all
+    print(f"Selecting all {spectrum_length} features as N_FEATURES_TO_SELECT >= spectrum_length")
+elif N_FEATURES_TO_SELECT > 0 :
+    sorted_indices = np.argsort(f_values)[::-1] # Sort desc by F-value
+    selected_features_f = np.sort(sorted_indices[:N_FEATURES_TO_SELECT]) # Sort final indices
+    f_threshold_value = f_values[selected_features_f[-1]] if len(selected_features_f) > 0 else np.inf # Use min F-value among selected
+    if len(selected_features_f) < N_FEATURES_TO_SELECT: # Handle case where fewer features exist than requested (unlikely here)
+         f_threshold_value = 0.0
+    print(f"Selecting top {len(selected_features_f)} features.")
+    print(f"Effective F-value threshold: >= {f_threshold_value:.4f}")
+else:
+    selected_features_f = np.array([], dtype=int) # Select none if N <= 0
+    f_threshold_value = np.inf
+    print("N_FEATURES_TO_SELECT is zero or negative. No features selected.")
+print("\n--- ANOVA F-Value Selection Results ---")
+print(f"Number of selected features: {len(selected_features_f)}")
+print(f"Selected feature indices: {selected_features_f}")
+
+plt.figure(figsize=(12, 6))
+plt.bar(np.arange(spectrum_length), f_values, color='dodgerblue', label='ANOVA F-value')
+if N_FEATURES_TO_SELECT > 0 and N_FEATURES_TO_SELECT < spectrum_length:
+    plt.axhline(f_threshold_value, color='k', linestyle='--', label=f'Threshold (F >= {f_threshold_value:.2f})')
+
+if len(selected_features_f) > 0:
+    selected_mask = np.zeros_like(f_values)
+    selected_mask[selected_features_f] = f_values[selected_features_f]
+    plt.stem(np.arange(spectrum_length), selected_mask, linefmt='g-', markerfmt='go', basefmt=' ',
+             label=f'Selected Features')
+plt.xlabel('Feature Index')
+plt.ylabel('ANOVA F-value')
+plt.title(f'ANOVA F-Value Based Variable Selection')
+plt.legend()
+plt.grid(True, axis='y', linestyle=':')
+plt.show()

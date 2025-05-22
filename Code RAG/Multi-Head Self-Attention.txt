@@ -1,0 +1,70 @@
+# Multi Head
+# Multi Head Self Attention
+# Multi Head Attention
+# Multi Head Self Attention for deep learning model
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+batch_size, seq_len, input_dim = 32, 200, 1
+x = torch.randn(batch_size, seq_len, input_dim)
+class MultiHeadSelfAttention(nn.Module):
+    def __init__(self, d_model, n_heads):
+        super(MultiHeadSelfAttention, self).__init__()
+        assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.d_k = d_model // n_heads
+
+        self.q_linear = nn.Linear(d_model, d_model)
+        self.k_linear = nn.Linear(d_model, d_model)
+        self.v_linear = nn.Linear(d_model, d_model)
+        self.out_linear = nn.Linear(d_model, d_model)
+        self.dropout = nn.Dropout(0.1)
+
+    def forward(self, x):
+
+        batch_size, seq_len, _ = x.size()
+
+
+        q = self.q_linear(x).view(batch_size, seq_len, self.n_heads, self.d_k).transpose(1, 2)
+        k = self.k_linear(x).view(batch_size, seq_len, self.n_heads, self.d_k).transpose(1, 2)
+        v = self.v_linear(x).view(batch_size, seq_len, self.n_heads, self.d_k).transpose(1, 2)
+
+
+        # Scaled dot-product attention
+        scores = torch.matmul(q, k.transpose(-2, -1)) / (self.d_k ** 0.5)  # [batch_size, n_heads, seq_len, seq_len]
+        attn_weights = F.softmax(scores, dim=-1)
+        attn_weights = self.dropout(attn_weights)
+        attn_output = torch.matmul(attn_weights, v)  # [batch_size, n_heads, seq_len, d_k]
+
+        # Concatenate heads and project
+        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, seq_len, self.d_model)
+        output = self.out_linear(attn_output)  # [batch_size, seq_len, d_model]
+        return output, attn_weights
+
+class SpectrumMultiHeadAttentionNet(nn.Module):
+    def __init__(self, input_dim=1, d_model=64, n_heads=8, seq_len=200):
+        super(SpectrumMultiHeadAttentionNet, self).__init__()
+        self.embedding = nn.Linear(input_dim, d_model)
+        self.attention = MultiHeadSelfAttention(d_model, n_heads)
+        self.fc = nn.Sequential(
+            nn.Linear(d_model, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
+        )
+
+    def forward(self, x):
+        # x: [batch_size, seq_len, input_dim]
+        x = self.embedding(x)  # [batch_size, seq_len, d_model]
+        output, attn_weights = self.attention(x)  # [batch_size, seq_len, d_model]
+        output = output.mean(dim=1)  # [batch_size, d_model]
+        output = self.fc(output)  # [batch_size, 1]
+        return output.squeeze(), attn_weights
+
+
+
+model = SpectrumMultiHeadAttentionNet(input_dim=input_dim, d_model=64, n_heads=8, seq_len=seq_len)
+output, attn_weights = model(x)
+print("Output shape:", output.shape)
+print("Attention weights shape:", attn_weights.shape)

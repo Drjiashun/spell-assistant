@@ -1,0 +1,95 @@
+# Bayesian feature selection
+# Bayesian
+# Bayesian feature selection for classification
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from scipy.stats import invgamma
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import cross_val_score, StratifiedKFold
+from sklearn.base import BaseEstimator, ClassifierMixin
+import warnings
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+
+print(f"Input data shape (X): {X.shape}")
+print(f"Target data shape (y): {y.shape}")
+print(f"Class distribution: {np.unique(y, return_counts=True)}")
+scaler_X = StandardScaler()
+X_scaled = scaler_X.fit_transform(X)
+encoder = OneHotEncoder(sparse_output=False)
+y_dummy_eval = encoder.fit_transform(y.reshape(-1, 1))
+print("X data scaled. y one-hot encoded for evaluation.")
+y_clf = y
+def bayesian_spike_slab_classification(X, y_int_labels, n_iter=1000, burn_in=500, sigma2_init=1.0, tau2=0.01, p0=0.1):
+    """
+    Adapts Bayesian Spike-and-Slab for classification variable selection
+    by treating integer class labels as the response variable (Heuristic).
+    """
+    n_samples, n_features = X.shape
+    if tau2 <= 0: raise ValueError("Spike variance tau2 must be positive.")
+    gamma = (np.random.rand(n_features) < p0).astype(int)
+    beta = np.zeros(n_features)
+    sigma2 = sigma2_init
+    gamma_sum = np.zeros(n_features)
+    XtX = X.T @ X
+    Xty = X.T @ y_int_labels # Use integer labels
+    print("Starting Gibbs Sampling (Classification Heuristic)...")
+    for t in range(n_iter):
+        slab_precision = 1.0 / sigma2; spike_precision = 1.0 / tau2
+        diag_prec = np.where(gamma == 1, slab_precision, spike_precision)
+        D_inv = np.diag(diag_prec)
+        try:
+            Sigma_beta_inv = XtX / sigma2 + D_inv
+            Sigma_beta = np.linalg.inv(Sigma_beta_inv + 1e-8 * np.eye(n_features))
+            Sigma_beta = (Sigma_beta + Sigma_beta.T) / 2
+            mu_beta = Sigma_beta @ Xty / sigma2
+            beta = np.random.multivariate_normal(mu_beta, Sigma_beta)
+        except np.linalg.LinAlgError:
+            warnings.warn(f"Iter {t+1}: Sigma_beta calculation failed. Skipping beta update.", RuntimeWarning)
+        log_p0_prior = np.log(p0 + 1e-10); log_p1_prior = np.log(1 - p0 + 1e-10)
+        log_L_ratio = 0.5 * np.log(tau2 / sigma2) + (beta**2 / 2) * (1/tau2 - 1/sigma2)
+        log_odds = log_p0_prior - log_p1_prior + log_L_ratio
+        prob_gamma_eq_1 = 1 / (1 + np.exp(-log_odds))
+        gamma = (np.random.rand(n_features) < prob_gamma_eq_1).astype(int)
+        beta_included = beta[gamma == 1]
+        resid = y_int_labels - X @ beta
+        shape_sigma2 = (n_samples + np.sum(gamma)) / 2.0
+        scale_sigma2 = 0.5 * (resid @ resid + np.sum(beta_included**2))
+        if scale_sigma2 > 1e-10: sigma2 = invgamma.rvs(shape_sigma2, scale=scale_sigma2)
+        else: sigma2 = invgamma.rvs(shape_sigma2, scale=1e-10)
+        sigma2 = max(sigma2, 1e-8)
+
+        if t >= burn_in: gamma_sum += gamma
+    inclusion_probs = gamma_sum / (n_iter - burn_in)
+    return inclusion_probs, None # Return None for mean beta, not needed
+
+N_ITER = 2000
+BURN_IN = 1000
+TAU2 = 1e-4
+P0 = 0.1
+try:
+    inclusion_probs, _ = bayesian_spike_slab_classification(
+        X_scaled, y_clf, n_iter=N_ITER, burn_in=BURN_IN, tau2=TAU2, p0=P0
+    )
+    threshold = 0.5
+    selected_features = np.where(inclusion_probs > threshold)[0]
+    print("\n--- Bayesian Variable Selection Results (Classification Heuristic) ---")
+    print(f"Number of selected features (Prob > {threshold}): {len(selected_features)}")
+    print(f"Selected feature indices: {selected_features}")
+    plt.figure(figsize=(12, 6))
+    plt.stem(np.arange(spectrum_length), inclusion_probs, linefmt='b-', markerfmt='bo', basefmt=' ', label='Inclusion Probability')
+    plt.axhline(threshold, color='k', linestyle='--', label=f'Threshold ({threshold:.2f})')
+    if len(selected_features) > 0:
+        plt.stem(selected_features, inclusion_probs[selected_features], linefmt='g-', markerfmt='go', basefmt=' ', label='Selected (Prob > Thr)')
+    plt.xlabel('Feature Index'); plt.ylabel('Posterior Inclusion Probability')
+    plt.title('Bayesian Variable Selection Results (Classification Heuristic)'); plt.legend(); plt.grid(True, linestyle=':')
+    plt.ylim(-0.1, 1.1); plt.show()
+except Exception as e:
+    print(f"\nAn error occurred during Bayesian variable selection: {e}")
+    import traceback
+    traceback.print_exc()

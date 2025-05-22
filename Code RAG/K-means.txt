@@ -1,0 +1,36 @@
+# KMeans
+# K-Means
+import numpy as np
+from sklearn.cluster import KMeans
+import matplotlib.pyplot as plt
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y_all_labels = np.random.randint(0, n_classes, num_samples)
+n_clusters = 3
+kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+kmeans.fit(X)
+labels = kmeans.labels_
+centers = kmeans.cluster_centers_
+inertia = kmeans.inertia_
+print("=== K-Means Clustering Results ===")
+print(f"Number of clusters: {n_clusters}")
+print(f"Number of samples: {len(X)}")
+print("\nCluster Centers:")
+for i, center in enumerate(centers):
+    print(f"Cluster {i}: [{center[0]:.2f}, {center[1]:.2f}]")
+print(f"\nInertia (within-cluster sum of squares): {inertia:.2f}")
+print("\nSample distribution across clusters:")
+for i in range(n_clusters):
+    count = np.sum(labels == i)
+    print(f"Cluster {i}: {count} samples ({count/len(X)*100:.1f}%)")
+plt.figure(figsize=(10, 8))
+scatter = plt.scatter(X[:, 0], X[:, 1], c=labels, cmap='viridis', alpha=0.6, s=50)
+plt.scatter(centers[:, 0], centers[:, 1], c='red', marker='x', s=200, linewidths=3, label='Centroids')
+plt.title('K-Means Clustering Results')
+plt.xlabel('Feature 1')
+plt.ylabel('Feature 2')
+plt.grid(True, alpha=0.3)
+plt.show()
