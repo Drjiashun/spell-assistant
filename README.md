@@ -80,7 +80,7 @@ Required for Text RAG.
 Create a directory and populate it with .txt files. Each file represents a knowledge item.  
 The first few lines of each .txt file, if prefixed with #, will be used as searchable descriptions.  
 See project documentation/examples for structuring these files: https://github.com/Drjiashun/spell-assistant  
-5. CSV RAG - Data Directory (csv_rag_data_dir)  
+5. DATA RAG - Data Directory (csv_rag_data_dir)  
 Required if enable_data_similarity_rag=True.  
 Create a directory containing reference .csv files that SpeLL can compare against user-provided CSV data.  
 See project documentation/examples: https://github.com/Drjiashun/spell-assistant  
