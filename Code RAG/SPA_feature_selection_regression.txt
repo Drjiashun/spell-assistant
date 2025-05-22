@@ -1,0 +1,67 @@
+# SPA feature selection
+# Successive Projections Algorithm feature selection for regression
+# Successive Projections Algorithm
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+print(f"Input data shape (X): {X.shape}")
+print(f"Target data shape (y): {y.shape}")
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+print("X data standardized.")
+def spa(X, n_vars_to_select, verbose=False):
+    """
+    Performs Successive Projections Algorithm (SPA) for variable selection for regression tasks.
+    """
+    n_samples, n_features = X.shape
+    if n_vars_to_select > n_features or n_vars_to_select < 1:
+        raise ValueError(f"n_vars_to_select ({n_vars_to_select}) must be between 1 and {n_features}")
+    print(f"Starting SPA to select {n_vars_to_select} variables...")
+    selected_indices = []
+    available_indices = list(range(n_features))
+    X_projected = X.copy()
+    norms = np.linalg.norm(X_projected, axis=0)
+    current_best_idx_in_available = np.argmax(norms)
+    current_best_idx_original = available_indices[current_best_idx_in_available]
+    selected_indices.append(current_best_idx_original)
+    available_indices.pop(current_best_idx_in_available)
+    if verbose: print(f"  Selected 1/{n_vars_to_select}: Index {current_best_idx_original}")
+    for k in range(1, n_vars_to_select):
+        last_selected_col_idx = selected_indices[-1]
+        x_k = X_projected[:, last_selected_col_idx].reshape(-1, 1) # Column vector of last selected
+        projections = np.zeros((n_samples, len(available_indices)))
+        for i, idx_j in enumerate(available_indices):
+            x_j = X_projected[:, idx_j].reshape(-1, 1) # Current available column
+            proj_scalar = (x_k.T @ x_j) / (x_k.T @ x_k + 1e-9) # Add epsilon for stability
+            proj_vector = x_k * proj_scalar
+            X_projected[:, idx_j] = x_j.flatten() - proj_vector.flatten()
+            projections[:, i] = X_projected[:, idx_j] # Store the orthogonalized part
+        norms = np.linalg.norm(projections, axis=0)
+        current_best_idx_in_available = np.argmax(norms)
+        current_best_idx_original = available_indices[current_best_idx_in_available]
+        selected_indices.append(current_best_idx_original)
+        available_indices.pop(current_best_idx_in_available)
+        if verbose and (k + 1) % (n_vars_to_select // 5 + 1) == 0:
+             print(f"  Selected {k + 1}/{n_vars_to_select}: Index {current_best_idx_original}")
+    return sorted(selected_indices) # Return sorted indices
+N_FEATURES_TO_SELECT = 50 # Choose how many features SPA should select
+selected_features_spa = spa(X_scaled, N_FEATURES_TO_SELECT, verbose=True)
+print("\n--- SPA Results ---")
+print(f"Number of selected features: {len(selected_features_spa)}")
+print(f"Selected feature indices (SPA): {selected_features_spa}")
+plt.figure(figsize=(12, 6))
+plt.stem(np.arange(spectrum_length), np.isin(np.arange(spectrum_length), selected_features_spa).astype(int),
+         linefmt='g-', markerfmt='go', basefmt=' ', label='SPA Selected Features')
+plt.xlabel('Feature Index')
+plt.ylabel('Selected (1) / Not Selected (0)')
+plt.title(f'SPA Selected Variables (K={N_FEATURES_TO_SELECT})')
+plt.yticks([0, 1])
+plt.ylim(-0.2, 1.1)
+plt.legend()
+plt.grid(True, linestyle=':')
+plt.show()

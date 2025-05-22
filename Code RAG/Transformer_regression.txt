@@ -1,0 +1,201 @@
+# Transformer
+# Transformer regression
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+from scipy.stats import pearsonr, spearmanr
+from sklearn.metrics import r2_score
+
+num_samples = 1000
+spectrum_length = 300
+data = np.random.randn(num_samples, spectrum_length)
+targets = np.random.uniform(0, 10, num_samples)
+scaler_X = StandardScaler()
+data = scaler_X.fit_transform(data)
+X_temp, test_data, y_temp, test_targets = train_test_split(
+    data, targets, test_size=0.2, random_state=42
+)
+train_data, val_data, train_targets, val_targets = train_test_split(
+    X_temp, y_temp, test_size=0.2, random_state=42
+)
+# Convert data shape and target shape to transformer input form,targets:(num_samples,1),data:(num_samples,spectrum_length,1)
+train_targets=train_targets.reshape(-1, 1)
+test_targets=test_targets.reshape(-1, 1)
+val_targets=val_targets.reshape(-1, 1)
+train_data = np.reshape(train_data,(train_data.shape[0],train_data.shape[1],1))
+test_data = np.reshape(test_data,(test_data.shape[0],test_data.shape[1],1))
+val_data = np.reshape(val_data,(val_data.shape[0],val_data.shape[1],1))
+
+class SpectrumDataset(Dataset):
+    def __init__(self, data, targets):
+        self.data = torch.tensor(data, dtype=torch.float32)
+        self.targets = torch.tensor(targets, dtype=torch.float32)
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx], self.targets[idx]
+train_dataset = SpectrumDataset(train_data, train_targets)
+val_dataset = SpectrumDataset(val_data, val_targets)
+test_dataset = SpectrumDataset(test_data, test_targets)
+batch_size = 32
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=200):
+        super(PositionalEncoding, self).__init__()
+        self.encoding = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-torch.log(torch.tensor(10000.0)) / d_model))
+        self.encoding[:, 0::2] = torch.sin(position * div_term)
+        self.encoding[:, 1::2] = torch.cos(position * div_term)
+        self.encoding = self.encoding.unsqueeze(0)
+
+    def forward(self, x):
+        return x + self.encoding[:, :x.size(1), :].to(x.device)
+
+
+class SpectrumTransformerRegressor(nn.Module):
+    def __init__(self, input_dim, seq_len, d_model, nhead, num_layers, dim_feedforward, dropout):
+        super(SpectrumTransformerRegressor, self).__init__()
+        self.input_proj = nn.Linear(input_dim, d_model)
+        self.positional_encoding = PositionalEncoding(d_model, max_len=seq_len)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward, dropout=dropout, batch_first=True
+        )
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.feature_weights = nn.Parameter(torch.ones(seq_len, d_model))
+
+        self.regressor = nn.Sequential(
+            nn.Linear(d_model, 128),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(128, 1)
+        )
+
+    def forward(self, x):
+
+        x = self.input_proj(x)
+        x = self.positional_encoding(x)
+        x = self.transformer_encoder(x)
+
+        x = (x * self.feature_weights).sum(dim=1)
+        x = self.regressor(x)
+        return x
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print("Using device:", device)
+
+d_model=64
+nhead=8
+num_layers=2
+dim_feedforward=64
+lr = 0.005
+model = SpectrumTransformerRegressor(
+    input_dim=train_data.shape[2], seq_len=spectrum_length, d_model=d_model, nhead=nhead, num_layers=num_layers, dim_feedforward=dim_feedforward, dropout=0.1
+).to(device)
+loss_function = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=lr)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+
+num_epochs = 1000
+patience = 20
+best_val_loss = float('inf')
+epochs_no_improve = 0
+
+train_losses = []
+val_losses = []
+
+for epoch in range(num_epochs):
+    model.train()
+    train_loss = 0
+    for batch_data, batch_targets in train_loader:
+        batch_data, batch_targets = batch_data.to(device), batch_targets.to(device)
+        optimizer.zero_grad()
+        predictions = model(batch_data)
+        loss = loss_function(predictions.squeeze(), batch_targets.squeeze())
+        loss.backward()
+        optimizer.step()
+        train_loss += loss.item()
+    train_loss /= len(train_loader)
+    train_losses.append(train_loss)
+
+    model.eval()
+    val_loss = 0
+    with torch.no_grad():
+        for batch_data, batch_targets in val_loader:
+            batch_data, batch_targets = batch_data.to(device), batch_targets.to(device)
+            predictions = model(batch_data)
+            loss = loss_function(predictions.squeeze(), batch_targets.squeeze())
+            val_loss += loss.item()
+    val_loss /= len(val_loader)
+    val_losses.append(val_loss)
+
+    scheduler.step(val_loss)
+
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        epochs_no_improve = 0
+    else:
+        epochs_no_improve += 1
+        if epochs_no_improve >= patience:
+            print(f"Early stopping triggered after {epoch + 1} epochs")
+            break
+
+    print(f"Epoch {epoch + 1}/{num_epochs}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, LR: {optimizer.param_groups[0]['lr']:.6f}")
+
+model.eval()
+
+all_preds = []
+all_targets = []
+test_loss = 0
+with torch.no_grad():
+    for batch_data, batch_targets in test_loader:
+        batch_data, batch_targets = batch_data.to(device), batch_targets.to(device)
+        predictions = model(batch_data)
+        loss = loss_function(predictions.squeeze(), batch_targets.squeeze())
+        test_loss += loss.item()
+        all_preds.extend(predictions.cpu().numpy())
+        all_targets.extend(batch_targets.cpu().numpy())
+test_loss /= len(test_loader)
+
+all_preds = np.array(all_preds)
+all_targets = np.array(all_targets)
+# Must import again
+from sklearn.metrics import r2_score
+r2 = r2_score(all_targets.squeeze(), all_preds.squeeze())
+# Must import again
+from scipy.stats import pearsonr, spearmanr
+pearson_corr, _ = pearsonr(all_targets.squeeze(), all_preds.squeeze())
+spearman_corr, _ = spearmanr(all_targets.squeeze(), all_preds.squeeze())
+print(f"Test Loss (MSE): {test_loss:.4f}")
+print(f"Pearson Correlation: {pearson_corr:.4f}")
+print(f"Spearman Correlation: {spearman_corr:.4f}")
+print(f"R² Score: {r2:.4f}")
+# Must import again
+import matplotlib.pyplot as plt
+plt.figure(figsize=(10, 5))
+plt.plot(train_losses, label='Train Loss')
+plt.plot(val_losses, label='Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss (MSE)')
+plt.title('Training and Validation Loss')
+plt.legend()
+plt.grid()
+plt.show()
+
+plt.figure(figsize=(10, 5))
+plt.scatter(all_targets, all_preds, alpha=0.5)
+plt.plot([all_targets.min(), all_targets.max()], [all_targets.min(), all_targets.max()], 'r--', label='Perfect Prediction')
+plt.xlabel('True Targets')
+plt.ylabel('Predicted Targets')
+plt.title('Predicted vs. True Targets')
+plt.legend()
+plt.grid()
+plt.show()

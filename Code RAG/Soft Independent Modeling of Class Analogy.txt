@@ -1,0 +1,106 @@
+# Soft Independent Modeling of Class Analogy
+# SIMCA
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+np.random.seed(42)
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+num_classes = 3
+data = np.random.randn(num_samples, spectrum_length)
+labels = np.random.randint(0, num_classes, num_samples)
+X_train_raw, X_test_raw, y_train, y_test = train_test_split(
+    data, labels, test_size=0.3, random_state=42, stratify=labels
+)
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train_raw)
+X_test = scaler.transform(X_test_raw)
+
+class_models = {}
+unique_classes = np.unique(y_train)
+n_features = X_train.shape[1]
+N_COMPONENTS_VAR = 0.95  # Variance explained threshold
+ALPHA = 0.05  # Significance level for thresholds
+# must import again
+from sklearn.decomposition import PCA
+for class_label in unique_classes:
+    print(f"Training model for class {class_label}...")
+    X_class = X_train[y_train == class_label]
+    n_samples_class = X_class.shape[0]
+    pca = PCA()
+    pca.fit(X_class)
+    explained_variance = np.cumsum(pca.explained_variance_ratio_)
+    n_components = np.searchsorted(explained_variance, N_COMPONENTS_VAR) + 1
+    max_components = min(n_samples_class - 1, n_features)
+    n_components = max(1, min(n_components, max_components))
+
+    print(f"  Using {n_components} components (explains >= {N_COMPONENTS_VAR*100:.1f}% variance)")
+    pca_class = PCA(n_components=n_components)
+    scores = pca_class.fit_transform(X_class)
+    X_reconstructed = pca_class.inverse_transform(scores)
+    score_vars = np.var(scores, axis=0, ddof=1)
+    score_vars = np.maximum(score_vars, 1e-10)  # Avoid division by zero
+    T2 = np.sum((scores ** 2) / score_vars, axis=1)
+    Q = np.sum((X_class - X_reconstructed) ** 2, axis=1)
+    T2_threshold = np.percentile(T2, (1 - ALPHA) * 100)
+    Q_threshold = np.percentile(Q, (1 - ALPHA) * 100)
+    class_models[class_label] = {
+        'pca': pca_class,
+        'score_vars': score_vars,
+        'T2_threshold': T2_threshold,
+        'Q_threshold': Q_threshold
+    }
+    print(f"  T2 Threshold: {T2_threshold:.4f}, Q Threshold: {Q_threshold:.4f}")
+
+print("--- SIMCA Training Complete ---")
+
+print("\n--- Predicting Test Samples ---")
+y_pred = []
+for x_test in X_test:
+    assigned_classes = []
+    for class_label, model in class_models.items():
+        pca = model['pca']
+        score_vars = model['score_vars']
+        T2_threshold = model['T2_threshold']
+        Q_threshold = model['Q_threshold']
+        scores = pca.transform(x_test.reshape(1, -1))
+        x_reconstructed = pca.inverse_transform(scores)
+        T2 = np.sum((scores ** 2) / score_vars, axis=1)[0]
+        Q = np.sum((x_test - x_reconstructed.flatten()) ** 2)
+
+        if T2 <= T2_threshold and Q <= Q_threshold:
+            assigned_classes.append(class_label)
+    if len(assigned_classes) == 1:
+        y_pred.append(assigned_classes[0])
+    elif len(assigned_classes) > 1:
+        y_pred.append('Ambiguous')
+    else:
+        y_pred.append('Unassigned')
+
+y_pred = np.array(y_pred)
+
+print("\n--- Evaluation ---")
+print(f"Test Set Size: {len(y_test)}")
+print(f"Predictions Breakdown: {dict(zip(*np.unique(y_pred, return_counts=True)))}")
+
+mask_valid = ~np.isin(y_pred, ['Ambiguous', 'Unassigned'])
+y_test_valid = y_test[mask_valid]
+y_pred_valid = y_pred[mask_valid].astype(int)
+
+if len(y_test_valid) > 0:
+    accuracy = accuracy_score(y_test_valid, y_pred_valid)
+    conf_matrix = confusion_matrix(y_test_valid, y_pred_valid, labels=unique_classes)
+    class_report = classification_report(y_test_valid, y_pred_valid, labels=unique_classes, zero_division=0)
+
+    print("\nPerformance on Assigned Samples:")
+    print(f"  Number of Assigned Samples: {len(y_test_valid)}")
+    print(f"  Accuracy: {accuracy:.4f}")
+    print("\nConfusion Matrix:")
+    print(conf_matrix)
+    print("\nClassification Report:")
+    print(class_report)
+else:
+    print("\nNo samples were unambiguously assigned.")

@@ -1,0 +1,62 @@
+# XGBoost regression
+# XGBoost
+import numpy as np
+import xgboost as xgb
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.preprocessing import StandardScaler
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X_all = np.random.randn(num_samples, spectrum_length)
+y_all = np.random.uniform(0, 10, num_samples)
+print(f"Input data shape (X): {X_all .shape}")
+print(f"Target data shape (y): {y_all.shape}")
+
+scaler = StandardScaler()
+X_all_scaled = scaler.fit_transform(X_all)
+X_train, X_test, y_train, y_test = train_test_split(
+    X_all_scaled, y_all, test_size=0.3, random_state=42
+)
+xgb_n_estimators = 500
+xgb_learning_rate = 0.1
+xgb_max_depth = 5
+xgb_subsample = 0.8
+xgb_colsample_bytree = 0.8
+xgb_objective = 'reg:squarederror'
+xgb_eval_metric = 'rmse'
+xgb_random_state = 42
+
+xgb_model = xgb.XGBRegressor(
+    n_estimators=xgb_n_estimators,
+    learning_rate=xgb_learning_rate,
+    max_depth=xgb_max_depth,
+    subsample=xgb_subsample,
+    colsample_bytree=xgb_colsample_bytree,
+    objective=xgb_objective,
+    eval_metric=xgb_eval_metric,
+    random_state=xgb_random_state
+)
+xgb_model.fit(X_train, y_train)
+y_train_pred = xgb_model.predict(X_train)
+y_test_pred = xgb_model.predict(X_test)
+train_mse = mean_squared_error(y_train, y_train_pred)
+train_rmse = np.sqrt(train_mse)
+train_r2 = r2_score(y_train, y_train_pred)
+test_mse = mean_squared_error(y_test, y_test_pred)
+test_rmse = np.sqrt(test_mse)
+test_r2 = r2_score(y_test, y_test_pred)
+print(f"Shape of X_train: {X_train.shape}")
+print(f"Shape of y_train: {y_train.shape}")
+print(f"Shape of X_test: {X_test.shape}")
+print(f"Shape of y_test: {y_test.shape}")
+print(f"Shape of y_train_pred: {y_train_pred.shape}")
+print(f"Shape of y_test_pred: {y_test_pred.shape}")
+print("\nPrediction Performance on Training Set:")
+print(f"  Mean Squared Error: {train_mse:.4f}")
+print(f"  Root Mean Squared Error: {train_rmse:.4f}")
+print(f"  R² Score: {train_r2:.4f}")
+print("\nPrediction Performance on Test Set:")
+print(f"  Mean Squared Error: {test_mse:.4f}")
+print(f"  Root Mean Squared Error: {test_rmse:.4f}")
+print(f"  R² Score: {test_r2:.4f}")

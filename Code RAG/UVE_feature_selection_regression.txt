@@ -1,0 +1,81 @@
+# UVE feature selection
+# UVE feature selection
+# Uninformative Variable Elimination
+# Uninformative Variable Elimination feature selection for regression
+import numpy as np
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
+
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+print(f"Input data shape (X): {X.shape}")
+print(f"Target data shape (y): {y.shape}")
+num_components = 5           # PLS model components
+num_simulations = 100        # Number of bootstrap/split iterations
+test_size = 0.3              # Proportion for train/test split
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+print("Original X data scaled.")
+def stability_selection_pls(X_scaled, y, n_components, n_simulations, test_size):
+    """
+    Performs stability selection using PLS on augmented data for regression tasks.
+    """
+    print(f"\nStarting Stability Selection with {n_simulations} simulations...")
+    n_samples, n_original_features = X_scaled.shape
+    X_noise = np.random.randn(n_samples, n_original_features) # Same number as original features
+    X_augmented = np.hstack((X_scaled, X_noise))
+    n_augmented_features = X_augmented.shape[1]
+    stability_scores = np.zeros(n_augmented_features)
+    pls = PLSRegression(n_components=n_components) # Use n_components passed to func
+    for i in range(n_simulations):
+
+        X_train, _, y_train, _ = train_test_split(
+            X_augmented, y, test_size=test_size, random_state=i # Use different random state for variety
+        )
+        current_n_components = min(n_components, X_train.shape[0] - 1) # Ensure components < samples
+        if current_n_components < 1:
+             print(f"Warning: Skipping simulation {i+1} due to insufficient samples for PLS components.")
+             continue # Skip this iteration if not enough samples
+        if pls.n_components != current_n_components:
+             pls = PLSRegression(n_components=current_n_components) # Re-init if needed
+        try:
+            pls.fit(X_train, y_train)
+            coef = pls.coef_.flatten()
+            stability_scores += coef ** 2
+        except ValueError as e:
+             print(f"Warning: PLS fitting failed in simulation {i+1}: {e}. Skipping stability update.")
+
+    stability_scores /= n_simulations # Average over successful simulations might be better if skips occur
+    feature_stability = stability_scores[:n_original_features]
+    noise_stability = stability_scores[n_original_features:]
+
+    threshold = np.mean(noise_stability)
+    selected_indices = np.where(feature_stability > threshold)[0]
+    print(f"Calculated threshold based on noise mean: {threshold:.4f}")
+    return selected_indices, feature_stability, noise_stability, threshold
+selected_features, feature_stability, noise_stability, threshold = stability_selection_pls(
+    X_scaled, y, num_components, num_simulations, test_size
+)
+
+print("\n--- Stability Selection Results ---")
+print(f"Number of selected features: {len(selected_features)}")
+print("Selected feature indices:", selected_features)
+plt.figure(figsize=(12, 6))
+feature_indices = np.arange(X.shape[1])
+noise_indices = np.arange(X.shape[1], X.shape[1] * 2)
+plt.stem(feature_indices, feature_stability, linefmt='b-', markerfmt='bo', basefmt=' ', label='Original Features')
+plt.stem(noise_indices, noise_stability, linefmt='r-', markerfmt='ro', basefmt=' ', label='Noise Features')
+plt.axhline(threshold, color='k', linestyle='--', label=f'Threshold ({threshold:.4f})')
+if len(selected_features) > 0:
+    plt.stem(selected_features, feature_stability[selected_features], linefmt='g-', markerfmt='go', basefmt=' ', label='Selected Features')
+plt.xlabel('Feature Index (Original + Noise)')
+plt.ylabel('Average Squared Coefficient (Stability)')
+plt.title('Stability Selection Scores')
+plt.legend()
+plt.grid(True, linestyle=':')
+plt.show()

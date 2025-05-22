@@ -1,0 +1,39 @@
+# Savitzky-Golay
+# SG
+# Savitzky Golay
+# SG Filter
+# SG Smoothing
+# SG Derivative
+import numpy as np
+import pandas as pd
+from scipy.signal import savgol_filter
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+data = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+def savgol_transform(data, window_size=21, poly_order=3, deriv=0, axis=1):
+    """
+    Apply Savitzky-Golay filter to smooth or compute derivatives of data.
+    """
+    if isinstance(data, pd.DataFrame):
+        data = data.values
+    elif not isinstance(data, np.ndarray):
+        data = np.array(data)
+    if data.ndim == 1:
+        data = data.reshape(1, -1) if axis == 1 else data.reshape(-1, 1)
+    elif data.ndim > 2:
+        raise ValueError("Input data must be 1D or 2D.")
+    if data.ndim == 2:
+        filtered_data = np.apply_along_axis(
+            lambda x: savgol_filter(x, window_size, poly_order, deriv), axis, data
+        )
+    else:
+        filtered_data = savgol_filter(data, window_size, poly_order, deriv)
+    return filtered_data
+
+deriv_signal = savgol_transform(data, window_size=21, poly_order=3, deriv=1)
+print(f"Length of original signal: {len(data)}")
+print(f"Length of filtered signal: {len(deriv_signal)}")
+
+

@@ -1,0 +1,15 @@
+# Second Derivative
+# Second-order Derivative
+import numpy as np
+from scipy.signal import savgol_filter
+np.random.seed(42)
+t = np.linspace(0, 1, 400)
+signal = np.sin(2 * np.pi * 5 * t) + 0.5 * np.random.randn(400)
+
+window_size = 21
+poly_order = 3
+
+second_deriv_signal = savgol_filter(signal, window_size, poly_order, deriv=2)
+
+print(f"Original signal length: {len(signal)}")
+print(f"Second derivative signal length: {len(second_deriv_signal)}")

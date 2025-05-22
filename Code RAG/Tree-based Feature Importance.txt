@@ -1,0 +1,34 @@
+# Tree-based Feature Importance
+# Tree-FI
+# Tree-based Feature Selection
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.feature_selection import SelectFromModel
+np.random.seed(42)
+
+
+data = np.random.randn(100, 8)
+
+target = np.random.randint(0, 2, 100)
+
+
+estimator = RandomForestClassifier(n_estimators=50, random_state=42)
+
+# estimator = RandomForestRegressor(n_estimators=50, random_state=42)
+
+
+selector = SelectFromModel(estimator, threshold='mean') # Or max_features=4
+
+selector.fit(data, target)
+selected_features = selector.transform(data)
+
+fitted_estimator = selector.estimator_
+importances = fitted_estimator.feature_importances_
+
+print("\n--- Tree-based Feature Importance (Random Forest) ---")
+print(f"Original data shape: {data.shape}")
+print(f"Selected features shape: {selected_features.shape}")
+print(f"Selected feature indices: {selector.get_support(indices=True)}")
+print(f"Feature importances: {importances}")
+print(f"Threshold used: {selector.threshold_}")

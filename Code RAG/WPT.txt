@@ -1,0 +1,67 @@
+# WPT
+# Wavelet Packet Transform
+import numpy as np
+import matplotlib.pyplot as plt
+import pywt
+
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+print(f"Input data shape (X): {X.shape}") # (1000, 300)
+feature_axis = np.arange(spectrum_length)
+wavelet_name = 'db4' # Daubechies 4
+# wavelet_name = 'sym5' # Symlet 5
+maxlevel = 3 # Maximum decomposition level
+mode = 'symmetric' # Padding mode
+print(f"\nPerforming WPT on {num_samples} spectra using '{wavelet_name}', maxlevel {maxlevel}, mode '{mode}'...")
+wp_sample = pywt.WaveletPacket(data=X[0, :], wavelet=wavelet_name, mode=mode, maxlevel=maxlevel)
+leaf_nodes = wp_sample.get_level(maxlevel, order='natural')
+leaf_coeffs_list_sample = [node.data for node in leaf_nodes]
+print("\n--- Shape of WPT Leaf Node Coefficient Arrays ---")
+print(f"Number of leaf nodes at level {maxlevel}: {len(leaf_nodes)}")
+for i, node_data in enumerate(leaf_coeffs_list_sample):
+    print(f"  Node {i}: {node_data.shape}")
+total_coeffs_length = sum(len(arr) for arr in leaf_coeffs_list_sample)
+print(f"\nLength of concatenated WPT coefficients per sample: {total_coeffs_length}")
+wpt_coeffs_all = np.zeros((num_samples, total_coeffs_length), dtype=np.float64)
+for i in range(num_samples):
+    spectrum = X[i, :]
+    wp = pywt.WaveletPacket(data=spectrum, wavelet=wavelet_name, mode=mode, maxlevel=maxlevel)
+    leaf_nodes_data = [node.data for node in wp.get_level(maxlevel, order='natural')]
+    concatenated_coeffs = np.concatenate(leaf_nodes_data)
+    wpt_coeffs_all[i, :] = concatenated_coeffs
+
+print(f"Output concatenated WPT coefficients matrix shape: {wpt_coeffs_all.shape}") # (1000, total_coeffs_length)
+sample_index_to_plot = 0
+example_spectrum = X[sample_index_to_plot, :]
+wp_example = pywt.WaveletPacket(data=example_spectrum, wavelet=wavelet_name, mode=mode, maxlevel=maxlevel)
+example_leaf_nodes = wp_example.get_level(maxlevel, order='natural')
+example_leaf_coeffs_list = [node.data for node in example_leaf_nodes]
+example_coeffs_concat = wpt_coeffs_all[sample_index_to_plot, :]
+plt.figure(figsize=(10, 4))
+plt.plot(feature_axis, example_spectrum, label=f'Spectrum Sample {sample_index_to_plot}')
+plt.title(f'Original Spectrum (Sample {sample_index_to_plot})')
+plt.xlabel('Feature Index')
+plt.ylabel('Intensity / Value')
+plt.legend()
+plt.grid(True, linestyle=':')
+plt.show()
+num_leaf_nodes = len(example_leaf_nodes)
+indices_to_plot = sorted(list(set([0, num_leaf_nodes // 2, num_leaf_nodes - 1]))) # First, middle, last indices
+fig, axes = plt.subplots(len(indices_to_plot), 1, figsize=(10, 2 * len(indices_to_plot) + 2), sharex=False)
+if len(indices_to_plot) == 1: axes = [axes] # Make axes iterable if only one subplot
+fig.suptitle(f'WPT Leaf Node Coefficients (Level {maxlevel}, Wavelet "{wavelet_name}") for Sample {sample_index_to_plot}', y=1.02)
+for i, node_idx in enumerate(indices_to_plot):
+    ax = axes[i]
+    node = example_leaf_nodes[node_idx] # Get the node object
+    node_coeffs = node.data
+    node_path = node.path # Get the path (e.g., 'aaa', 'aad', 'ada', ...)
+    ax.plot(node_coeffs, '.-')
+    ax.set_title(f'Leaf Node "{node_path}" (Index {node_idx}) - Shape {node_coeffs.shape}')
+    ax.grid(True, linestyle=':')
+    ax.set_ylabel('Coefficient')
+axes[-1].set_xlabel('Coefficient Index') # Add x-label to the last plot
+plt.tight_layout(rect=[0, 0, 1, 0.98]) # Adjust layout
+plt.show()

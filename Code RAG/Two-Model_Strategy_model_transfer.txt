@@ -1,0 +1,118 @@
+# Two-Model Strategy
+# Two Model Strategy
+# Two Model Strategy Model Transfer
+# Two-Model Strategy Model Transfer
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.metrics import mean_squared_error
+n_wavelengths = 50       # Number of spectral points
+n_samples_master = 70  # Number of calibration samples for Master
+n_samples_slave = 60   # Number of calibration samples for Slave (independent set)
+n_samples_new = 25     # Number of new samples measured only on the Slave device
+n_components_master = 10 # Example value for Master PLS model
+n_components_slave = 10  # Example value for Slave PLS model
+n_components_correction = 1 # Usually 1 for prediction correction model
+print(f"Number of wavelengths: {n_wavelengths}")
+print(f"Master calibration samples: {n_samples_master}")
+print(f"Slave calibration samples: {n_samples_slave}")
+print(f"New samples on slave: {n_samples_new}")
+print(f"PLS Components (Master): {n_components_master}")
+print(f"PLS Components (Slave): {n_components_slave}")
+print(f"PLS Components (Correction): {n_components_correction}")
+X_master_cal = np.random.rand(n_samples_master, n_wavelengths)
+master_coeffs = np.random.rand(n_wavelengths, 1) * 0.5
+Y_master_cal = X_master_cal @ master_coeffs + np.random.rand(n_samples_master, 1) * 5 + 10 # Add noise and offset
+X_slave_cal = np.random.rand(n_samples_slave, n_wavelengths) * 1.1 + 0.1 # Simulate different instrument response
+slave_coeffs = np.random.rand(n_wavelengths, 1) * 0.45 # Different relationship
+Y_slave_cal = X_slave_cal @ slave_coeffs + np.random.rand(n_samples_slave, 1) * 6 + 12 # Different noise/offset
+X_slave_new = np.random.rand(n_samples_new, n_wavelengths) * 1.1 + 0.1
+Y_new_hypothetical = X_slave_new @ slave_coeffs + np.random.rand(n_samples_new, 1) * 6 + 12
+print(f"\nMaster cal spectra shape (X_master_cal): {X_master_cal.shape}")
+print(f"Master cal Y shape (Y_master_cal): {Y_master_cal.shape}")
+print(f"Slave cal spectra shape (X_slave_cal): {X_slave_cal.shape}")
+print(f"Slave cal Y shape (Y_slave_cal): {Y_slave_cal.shape}")
+print(f"New slave spectra shape (X_slave_new): {X_slave_new.shape}")
+print(f"Hypothetical new Y shape (Y_new_hypothetical): {Y_new_hypothetical.shape}")
+print(f"\nTraining Master calibration model (PLS, {n_components_master} components)...")
+model_master = PLSRegression(n_components=n_components_master) # Use PLS
+model_master.fit(X_master_cal, Y_master_cal)
+print("Master PLS model trained.")
+print(f"\nTraining Slave calibration model (PLS, {n_components_slave} components)...")
+model_slave = PLSRegression(n_components=n_components_slave) # Use PLS
+model_slave.fit(X_slave_cal, Y_slave_cal)
+print("Slave PLS model trained.")
+print("\nGenerating data for the Correction Model...")
+Y_pred_master_on_slave_cal = model_master.predict(X_slave_cal)
+correction_model_input = Y_pred_master_on_slave_cal
+correction_model_target = Y_slave_cal
+if correction_model_input.ndim == 1:
+    correction_model_input = correction_model_input.reshape(-1, 1)
+if correction_model_target.ndim == 1: # Target also needs correct shape for PLS fit
+     correction_model_target = correction_model_target.reshape(-1, 1)
+print(f"Correction model input shape: {correction_model_input.shape}")
+print(f"Correction model target shape: {correction_model_target.shape}")
+print(f"\nTraining the Correction Model (PLS, {n_components_correction} components)...")
+model_correction = PLSRegression(n_components=n_components_correction) # Use PLS
+model_correction.fit(correction_model_input, correction_model_target)
+print("Correction PLS model trained.")
+print("\nApplying model transfer to new slave samples...")
+Y_pred_master_on_new_slave = model_master.predict(X_slave_new)
+if Y_pred_master_on_new_slave.ndim == 1:
+    Y_pred_master_on_new_slave_2d = Y_pred_master_on_new_slave.reshape(-1, 1)
+else:
+    Y_pred_master_on_new_slave_2d = Y_pred_master_on_new_slave
+Y_pred_corrected = model_correction.predict(Y_pred_master_on_new_slave_2d)
+print(f"Initial master predictions on new slave data shape: {Y_pred_master_on_new_slave.shape}")
+print(f"Final corrected predictions shape: {Y_pred_corrected.shape}")
+Y_pred_original_master = Y_pred_master_on_new_slave # Reuse calculation from 6a
+print("\n--- Prediction Results (Example) ---")
+for i in range(min(5, n_samples_new)):
+    print(f"Sample {i+1}:")
+    print(f"  Hypothetical True Y: {Y_new_hypothetical[i, 0]:.2f}")
+    print(f"  Predicted Y (Master PLS on Slave Data): {Y_pred_original_master[i, 0]:.2f}")
+    print(f"  Predicted Y (Two-Model Corrected PLS): {Y_pred_corrected[i, 0]:.2f}")
+mse_original = mean_squared_error(Y_new_hypothetical, Y_pred_original_master)
+mse_corrected = mean_squared_error(Y_new_hypothetical, Y_pred_corrected)
+print("\n--- Prediction Performance (MSE vs Hypothetical Y) ---")
+print(f"MSE using Original Master PLS Model on Slave Data: {mse_original:.4f}")
+print(f"MSE using Two-Model Correction Strategy (PLS): {mse_corrected:.4f}")
+plt.figure(figsize=(12, 6)) # Adjusted figure size
+plt.subplot(1, 3, 1)
+plt.scatter(correction_model_input, correction_model_target, alpha=0.7, label='Slave Cal Data')
+correction_fit_line = model_correction.predict(correction_model_input)
+sort_indices = np.argsort(correction_model_input[:, 0])
+plt.plot(correction_model_input[sort_indices], correction_fit_line[sort_indices], color='red', linewidth=2, label=f'Correction Fit (PLS {n_components_correction} comps)')
+plt.title('Correction Model Fit')
+plt.xlabel('Master Model Prediction on Slave Cal Spectra')
+plt.ylabel('Actual Slave Cal Y')
+plt.legend()
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.subplot(1, 3, 2)
+sample_indices = np.arange(n_samples_new)
+plt.scatter(sample_indices, Y_new_hypothetical, label='Hypothetical True Y', marker='o', alpha=0.7)
+plt.scatter(sample_indices, Y_pred_original_master, label='Predicted Y (Master PLS on Slave)', marker='x', alpha=0.7)
+plt.scatter(sample_indices, Y_pred_corrected, label='Predicted Y (Corrected PLS)', marker='+', alpha=0.9, s=80)
+plt.title('Prediction Comparison for New Samples')
+plt.xlabel('New Sample Index')
+plt.ylabel('Predicted/Hypothetical Y Value')
+plt.legend()
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.subplot(1, 3, 3)
+all_preds = np.concatenate([Y_new_hypothetical.flatten(), Y_pred_original_master.flatten(), Y_pred_corrected.flatten()])
+min_val = all_preds.min() * 0.9 if all_preds.size > 0 else 0
+max_val = all_preds.max() * 1.1 if all_preds.size > 0 else 1
+plt.plot([min_val, max_val], [min_val, max_val], 'k--', label='Ideal (y=x)')
+plt.scatter(Y_new_hypothetical, Y_pred_original_master, label=f'Master PLS on Slave (MSE={mse_original:.2f})', marker='x', alpha=0.7)
+plt.scatter(Y_new_hypothetical, Y_pred_corrected, label=f'Corrected PLS (MSE={mse_corrected:.2f})', marker='+', alpha=0.9, s=80)
+plt.title('Predicted vs. Hypothetical Y')
+plt.xlabel('Hypothetical True Y')
+plt.ylabel('Predicted Y')
+plt.legend()
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.axis('equal')
+plt.xlim(min_val, max_val)
+plt.ylim(min_val, max_val)
+plt.tight_layout()
+plt.show()
+print("\nCode execution finished.")

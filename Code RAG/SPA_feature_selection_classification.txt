@@ -1,0 +1,107 @@
+# SPA feature selection
+# Successive Projections Algorithm feature selection for classification
+# Successive Projections Algorithm
+
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.base import BaseEstimator, ClassifierMixin
+
+np.random.seed(42)
+num_samples = 500
+spectrum_length = 200
+n_classes = 3
+X = np.random.randn(num_samples, spectrum_length)
+y = np.random.randint(0, n_classes, num_samples)
+print(f"Input data shape (X): {X.shape}")
+print(f"Target data shape (y): {y.shape}")
+print(f"Number of classes: {n_classes}")
+print(f"Class distribution: {np.unique(y, return_counts=True)}")
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+print("X data standardized.")
+def spa(X, n_vars_to_select, verbose=False):
+    """
+    Performs Successive Projections Algorithm (SPA) for variable selection.
+    (Identical to the regression version)
+    """
+    n_samples, n_features = X.shape
+    if n_vars_to_select > n_features or n_vars_to_select < 1:
+        raise ValueError(f"n_vars_to_select ({n_vars_to_select}) must be between 1 and {n_features}")
+    print(f"Starting SPA to select {n_vars_to_select} variables...")
+    selected_indices = []
+    available_indices = list(range(n_features))
+    X_projected = X.copy()
+    norms = np.linalg.norm(X_projected, axis=0)
+    current_best_idx_in_available = np.argmax(norms)
+    current_best_idx_original = available_indices[current_best_idx_in_available]
+    selected_indices.append(current_best_idx_original)
+    available_indices.pop(current_best_idx_in_available)
+
+    for k in range(1, n_vars_to_select):
+        last_selected_col_idx = selected_indices[-1]
+        x_k = X_projected[:, last_selected_col_idx].reshape(-1, 1)
+        xk_norm_sq = np.dot(x_k.T, x_k) + 1e-9 # Precompute norm squared
+
+        projections = np.zeros((n_samples, len(available_indices)))
+        for i, idx_j in enumerate(available_indices):
+            x_j = X_projected[:, idx_j].reshape(-1, 1)
+            proj_scalar = np.dot(x_k.T, x_j) / xk_norm_sq
+            proj_vector = x_k * proj_scalar
+            X_projected[:, idx_j] -= proj_vector.flatten()
+            projections[:, i] = X_projected[:, idx_j]
+
+        norms = np.linalg.norm(projections, axis=0)
+        current_best_idx_in_available = np.argmax(norms)
+        current_best_idx_original = available_indices[current_best_idx_in_available]
+        selected_indices.append(current_best_idx_original)
+        available_indices.pop(current_best_idx_in_available)
+
+    return sorted(selected_indices)
+class PLSDAClassifier(BaseEstimator, ClassifierMixin):
+    """Wraps PLSRegression for classification tasks."""
+    def __init__(self, n_components=2):
+        self.n_components = n_components
+        self.pls_ = PLSRegression(n_components=self.n_components)
+        self.encoder_ = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+        self.classes_ = None
+    def fit(self, X, y):
+        self.classes_ = np.unique(y)
+        y_dummy = self.encoder_.fit_transform(y.reshape(-1, 1))
+        actual_n_components = min(self.n_components, X.shape[0] - 1, X.shape[1] - 1, y_dummy.shape[1] - 1 if y_dummy.shape[1] > 1 else 1)
+        if actual_n_components < 1: raise ValueError("Cannot fit PLSDA: Not enough samples/features for any components.")
+        if self.pls_.n_components != actual_n_components: self.pls_ = PLSRegression(n_components=actual_n_components)
+        self.pls_.fit(X, y_dummy)
+        return self
+    def predict_proba(self, X):
+        y_pred_raw = self.pls_.predict(X)
+        y_pred_scaled = np.clip(y_pred_raw, 0, None)
+        sum_preds = np.sum(y_pred_scaled, axis=1, keepdims=True)
+        probs = np.divide(y_pred_scaled, sum_preds, out=np.zeros_like(y_pred_scaled), where=sum_preds != 0)
+        probs[np.sum(probs, axis=1) == 0, 0] = 1.0 # Handle all-zero case
+        probs /= np.sum(probs, axis=1, keepdims=True)
+        return probs
+
+    def predict(self, X):
+        y_pred_raw = self.pls_.predict(X)
+        max_indices = np.argmax(y_pred_raw, axis=1)
+        return self.classes_[max_indices]
+N_FEATURES_TO_SELECT = 50
+selected_features_spa = spa(X_scaled, N_FEATURES_TO_SELECT, verbose=False)
+
+print("\n--- SPA Results ---")
+print(f"Number of selected features: {len(selected_features_spa)}")
+print(f"Selected feature indices (SPA): {selected_features_spa}")
+plt.figure(figsize=(12, 6))
+plt.stem(np.arange(spectrum_length), np.isin(np.arange(spectrum_length), selected_features_spa).astype(int),
+         linefmt='g-', markerfmt='go', basefmt=' ', label='SPA Selected Features')
+
+plt.xlabel('Feature Index')
+plt.ylabel('Selected (1) / Not Selected (0)')
+plt.title(f'SPA Selected Variables (K={N_FEATURES_TO_SELECT})')
+plt.yticks([0, 1])
+plt.ylim(-0.2, 1.1)
+plt.legend()
+plt.grid(True, linestyle=':')
+plt.show()
