@@ -1,0 +1,14 @@
+Copyright (c) 2025 Jiashun Fu
+
+All Rights Reserved.
+
+Permission is hereby granted to any person obtaining a copy of this software and associated documentation files (the "Software"), to use and study the Software for personal, non-commercial, and educational purposes only, subject to the following conditions:
+
+1. The Software may not be used, copied, modified, merged, published, distributed, sublicensed, or sold for any commercial or production purposes.
+2. The Software may not be used as part of any commercial product, service, or publication.
+3. No derivative works may be created or distributed based on this Software without explicit written permission from the copyright holder.
+4. The Software is provided "as is", without warranty of any kind, express or implied.
+
+If you wish to use this software for commercial purposes, including research for paid projects, commercial services, product integration, or other uses beyond personal learning, you must obtain written permission from the author.
+
+Contact: fujiashun1998@163.com
