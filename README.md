@@ -18,7 +18,7 @@ conda activate spell_env
 pip install spell-assistant
 - Option B: Installing from a local Conda package (If you have a .conda file)
 If you have a pre-built .conda package file (from https://github.com/Drjiashun/spell-assistant):  
-conda install --use-local "/path/to/your/downloaded/spell-assistant-0.1.0-py39_0.conda"
+conda install --use-local "/path/to/your/downloaded/spell-assistant-0.1.1-py39_0.conda"
 This installs the package version bundled in the .conda file. You will still need to install other complex dependencies manually as described below.
 ### Step 3: Manually Install Complex/Optional Dependencies
 spell-assistant relies on several powerful libraries for its advanced features. These are best installed manually into your activated Conda environment to ensure correct versions and configurations (especially for GPU support).
