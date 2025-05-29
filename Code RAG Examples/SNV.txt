@@ -1,0 +1,39 @@
+# Standard Normal Variate
+# SNV
+# SNV_Transform
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+data = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+def snv_transform(data, axis=1, epsilon=1e-8):
+    """
+    Apply Standard Normal Variate (SNV) transformation to data.
+    """
+    if isinstance(data, pd.DataFrame):
+        data = data.values
+    elif not isinstance(data, np.ndarray):
+        data = np.array(data)
+    mean = np.mean(data, axis=axis, keepdims=True)
+    std = np.std(data, axis=axis, keepdims=True)
+    snv_data = (data - mean) / (std + epsilon)
+    return snv_data
+snv_data = snv_transform(data, axis=1)
+print(f"Original data shape: {data.shape}")
+print(f"SNV transformed data shape: {snv_data.shape}")
+# Visualization
+plt.figure(figsize=(8, 6))
+wavelengths = np.arange(spectrum_length)
+# Plot SNV-transformed spectra
+for i in range(num_samples):
+    plt.plot(wavelengths, snv_data[i, :], 'b-', alpha=0.1)
+plt.xlabel('Wavelength Index')
+plt.ylabel('Intensity')
+plt.title('SNV-Transformed Spectra')
+plt.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()

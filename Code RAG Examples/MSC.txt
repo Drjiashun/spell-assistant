@@ -1,0 +1,37 @@
+# Multiplicative Scatter Correction
+# MSC
+# Scatter Correction Method
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+np.random.seed(42)
+num_samples = 1000
+spectrum_length = 300
+data = np.random.randn(num_samples, spectrum_length)
+y = np.random.uniform(0, 10, num_samples)
+reference = np.mean(data, axis=0)
+print(f"Original data shape: {data.shape}")
+print(f"Reference spectrum shape: {reference.shape}")
+msc_corrected_data = np.zeros_like(data) # Initialize array for corrected data
+for i in range(data.shape[0]):
+    if isinstance(data, pd.DataFrame):
+        data = data.values
+    elif not isinstance(data, np.ndarray):
+        data = np.array(data)
+    current_spectrum = data[i, :]
+    coeffs = np.polyfit(reference, current_spectrum, 1)
+    slope = coeffs[0]
+    intercept = coeffs[1]
+    msc_corrected_data[i, :] = (current_spectrum - intercept) / slope
+print(f"\nMSC corrected data shape: {msc_corrected_data.shape}")
+# Visualization
+plt.figure(figsize=(8, 6))
+wavelengths = np.arange(spectrum_length)
+for i in range(num_samples):
+    plt.plot(wavelengths, msc_corrected_data[i, :], 'b-', alpha=0.1)
+plt.xlabel('Wavelength Index')
+plt.ylabel('Intensity')
+plt.title('MSC-Corrected Spectra')
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
