@@ -14,7 +14,7 @@ conda create -n spell_env python=3.9  # Or python=3.8, 3.10, 3.11, 3.12
 conda activate spell_env
 ```
 ### Step 2: Install the spell-assistant Package
-- Option A: Installing from PyPI 
+- Option A: Installing from PyPI     
 pip install spell-assistant
 - Option B: Installing from a local Conda package (If you have a .conda file)
 If you have a pre-built .conda package file (from https://github.com/Drjiashun/spell-assistant):  
