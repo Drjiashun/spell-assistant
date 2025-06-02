@@ -63,10 +63,10 @@ Required if llm_backend_type="local".
 Download a Large Language Model in GGUF format.  
 Pass its full path to the local_llm_model_path parameter of the Spell class.  
 Recommended Models (Examples):  
-Qwen2.5 Coder 14B Instruct GGUF: https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF
+Qwen2.5 Coder 14B Instruct GGUF: https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF  
 pip install -U huggingface_hub  
 huggingface-cli download Qwen/Qwen2.5-Coder-14B-Instruct-GGUF --include "qwen2.5-coder-14b-instruct-q8_0.gguf" --local-dir . --local-dir-use-symlinks False  
-Huihui-AI QwQ 32B Abliterated GGUF:  https://huggingface.co/bartowski/huihui-ai_QwQ-32B-abliterated-GGUF
+Huihui-AI QwQ 32B Abliterated GGUF:  https://huggingface.co/bartowski/huihui-ai_QwQ-32B-abliterated-GGUF  
 huggingface-cli download bartowski/huihui-ai_QwQ-32B-abliterated-GGUF --include "huihui-ai_QwQ-32B-abliterated-Q6_K_L.gguf" --local-dir ./  
 3. API Access (for API backend)  
 Required if llm_backend_type="api".  
