@@ -50,7 +50,8 @@ This is only required if you plan to use API-based LLMs (llm_backend_type="api")
 pip install openai  
 E. Pynput (for keyboard interrupt handling in interactive chat)  
 pip install pynput  
-F. Other Potential Dependencies for Code Execution  
+F. pip install pandas
+G. Other Potential Dependencies for Code Execution  
 SpeLL-generated Python code may use additional libraries (e.g., matplotlib, scipy, scikit-learn, or domain-specific libraries for spectral analysis). Ensure these libraries are installed in your Python environment (spell_env) if you anticipate the generated code will need them.
 Example:  
 pip install matplotlib scipy scikit-learn  
