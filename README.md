@@ -27,7 +27,7 @@ A. FAISS (for similarity search in RAG)
 For GPU-accelerated search (Recommended if you have an NVIDIA GPU):
 Install from the pytorch channel. Adjust cudatoolkit version to match your system's CUDA.  
 Example for CUDA 11.8  
-pip install faiss-gpu-cu118  
+pip install faiss-gpu-cu11  
 For CPU-only version:  
 pip install faiss-cpu  
 B. sentence-transformers (for text embeddings)  
