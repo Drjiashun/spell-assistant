@@ -94,7 +94,7 @@ Create a directory containing reference .csv files that SpeLL can compare agains
 See project documentation/examples: https://github.com/Drjiashun/spell-assistant  
 
 ### Usage Example
-Here's a basic example of how to initialize and use the Spell class. You MUST replace placeholder paths with your actual local paths to models and data.  
+Here's a basic example of how to initialize and use the Spell class. You MUST replace placeholder paths with your actual local paths to models and data. Please note that when users need to train and predict using their own existing dataset, it is best to set ENABLE_CSV_RAG_TEST = False to ensure that data RAG is not enabled.   
 ```python
 import os
 import multiprocessing
