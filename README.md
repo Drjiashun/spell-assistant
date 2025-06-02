@@ -74,13 +74,17 @@ Set api_key (directly or via api_key_file), api_model_id, api_base_url, etc., wh
 Required for Text RAG functionality.  
 Pass its full path to the embedding_model_path parameter.  
 Recommended Model: BAAI BGE-M3: https://huggingface.co/BAAI/bge-m3  
-Download the entire model repository to a local directory.  
-4. Code RAG - Knowledge Directory (knowledge_dir)  
+Download the entire model repository to a local directory.
+Example:
+pip install -U huggingface_hub
+export HF_ENDPOINT=https://hf-mirror.com #if need
+huggingface-cli download --repo-type model --resume-download BAAI/bge-m3 --local-dir bge-m3
+5. Code RAG - Knowledge Directory (knowledge_dir)  
 Required for Text RAG.  
 Create a directory and populate it with .txt files. Each file represents a knowledge item.  
 The first few lines of each .txt file, if prefixed with #, will be used as searchable descriptions.  
 See project documentation/examples for structuring these files: https://github.com/Drjiashun/spell-assistant  
-5. DATA RAG - Data Directory (csv_rag_data_dir)  
+6. DATA RAG - Data Directory (csv_rag_data_dir)  
 Required if enable_data_similarity_rag=True.  
 Create a directory containing reference .csv files that SpeLL can compare against user-provided CSV data.  
 See project documentation/examples: https://github.com/Drjiashun/spell-assistant  
