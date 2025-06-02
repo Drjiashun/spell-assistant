@@ -63,14 +63,17 @@ Required if llm_backend_type="local".
 Download a Large Language Model in GGUF format.  
 Pass its full path to the local_llm_model_path parameter of the Spell class.  
 Recommended Models (Examples):  
-Qwen2.5 Coder 14B Instruct GGUF: https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF  
-Huihui-AI QwQ 32B Abliterated GGUF:  https://huggingface.co/bartowski/huihui-ai_QwQ-32B-abliterated-GGUF  
-2. API Access (for API backend)  
+Qwen2.5 Coder 14B Instruct GGUF: https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF
+pip install -U huggingface_hub  
+huggingface-cli download Qwen/Qwen2.5-Coder-14B-Instruct-GGUF --include "qwen2.5-coder-14b-instruct-q8_0.gguf" --local-dir . --local-dir-use-symlinks False  
+Huihui-AI QwQ 32B Abliterated GGUF:  https://huggingface.co/bartowski/huihui-ai_QwQ-32B-abliterated-GGUF
+huggingface-cli download bartowski/huihui-ai_QwQ-32B-abliterated-GGUF --include "huihui-ai_QwQ-32B-abliterated-Q6_K_L.gguf" --local-dir ./  
+3. API Access (for API backend)  
 Required if llm_backend_type="api".  
 You need to provide API credentials and model identifiers.  
 Recommended Service: OpenRouter.ai (offers access to various models):https://openrouter.ai/.  
 Set api_key (directly or via api_key_file), api_model_id, api_base_url, etc., when initializing Spell.  
-3. Embedding Model (SentenceTransformer Format)  
+4. Embedding Model (SentenceTransformer Format)  
 Required for Text RAG functionality.  
 Pass its full path to the embedding_model_path parameter.  
 Recommended Model: BAAI BGE-M3: https://huggingface.co/BAAI/bge-m3  
