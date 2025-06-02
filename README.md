@@ -106,7 +106,7 @@ LOCAL_N_GPU_LAYERS = -1
 LOCAL_N_CTX = 30000
 ACTUAL_API_KEY_FILE = "/openrouter_api_key.txt"
 ACTUAL_API_KEY = None
-API_MODEL_ID_TO_TEST = "tngtech/deepseek-r1t-chimera:free" 
+API_MODEL_ID_TO_TEST = "qwen/qwen3-235b-a22b:free" 
 
 API_BASE_URL_TO_TEST = "https://openrouter.ai/api/v1"
 API_SITE_URL_FOR_HEADER = "https://openrouter.ai/api/v1"
