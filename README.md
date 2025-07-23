@@ -33,6 +33,7 @@ pip install faiss-cpu
 B. sentence-transformers (for text embeddings)  
 This library will automatically install PyTorch (if not already installed or if a compatible version is needed).  
 pip install sentence-transformers  
+If PyTorch is not installed correctly, please refer to the official PyTorch website at https://pytorch.org/ for proper installation.  
 C. llama-cpp-python (for local LLM interaction)  
 This is only required if you plan to use local GGUF models (llm_backend_type="local").  
 Installation can be complex, especially with GPU acceleration.  
