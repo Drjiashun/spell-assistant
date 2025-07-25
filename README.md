@@ -2,10 +2,10 @@
 SpeLL is a sophisticated and powerful conversational AI system designed for spectral analysis and Python code generation. It leverages Retrieval Augmented Generation (RAG) technology, supports text and CSV data, interacts with local large language models (LLM) or web-based LLMs (via API), and features an auto-debugging function for generated code.
 This package provides the core SpeLL framework. **To achieve full functionality, users must manually install several additional libraries as listed below.**
 
-## Prerequisites
+## Prerequisites (Linux)
 
 Before starting the installation, ensure that **Conda** (Anaconda or Miniconda) is installed on your system. Python 3.8 or newer is required.  
-## Installation Guide
+## Installation Guide (Linux)
 Follow these steps to install and set up `spell-assistant` and its dependencies:
 ### Step 1: Create and Activate a Conda Environment
 It is highly recommended to create a dedicated Conda environment for SpeLL to manage dependencies effectively.  
@@ -13,7 +13,7 @@ It is highly recommended to create a dedicated Conda environment for SpeLL to ma
 conda create -n spell_env python=3.9  # Or python=3.8, 3.10, 3.11, 3.12
 conda activate spell_env
 ```
-### Step 2: Install the spell-assistant Package
+### Step 2: Install the spell-assistant Package  
 - Option A: Installing from PyPI     
 pip install spell-assistant
 - Option B: Installing from a local Conda package (If you have a .conda file)
@@ -55,7 +55,19 @@ F. pip install pandas
 G. Other Potential Dependencies for Code Execution  
 SpeLL-generated Python code may use additional libraries (e.g., matplotlib, scipy, scikit-learn, or domain-specific libraries for spectral analysis). Ensure these libraries are installed in your Python environment (spell_env) if you anticipate the generated code will need them.
 Example:  
-pip install matplotlib scipy scikit-learn  
+pip install matplotlib scipy scikit-learn seaborn  
+
+## Prerequisites (Windows)
+Recommended CUDA 12.1 + Python 3.11.  
+CUDA installation address: https://developer.nvidia.com/cuda-toolkit-archive  
+Python installation address: https://www.python.org/downloads/windows/  
+## Installation Guide (Windows)
+pip install spell-assistant  
+pip install faiss-cpu  
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118  
+pip install sentence-transformers  
+pip install https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.4-cu121/llama_cpp_python-0.3.4-cp311-cp311-win_amd64.whl  
+pip install matplotlib scipy scikit-learn seaborn pandas openai pynput  
 
 # Configuration: Required Models and Data  
 
