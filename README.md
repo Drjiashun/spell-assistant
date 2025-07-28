@@ -1,5 +1,8 @@
 # spell-assistant
 SpeLL is a sophisticated and powerful conversational AI system designed for spectral analysis and Python code generation. It leverages Retrieval Augmented Generation (RAG) technology, supports text and CSV data, interacts with local large language models (LLM) or web-based LLMs (via API), and features an auto-debugging function for generated code.
+## If you use this in your work, please cite:  
+Fu, J.; Liu, X.; Cai, W.; Fu, H.; Shao, X. SpeLL: An Agent for Natural Language-Driven Intelligent Spectral Modeling. Journal of Chemical Information and Modeling 2025. DOI: 10.1021/acs.jcim.5c01236.  
+
 This package provides the core SpeLL framework. **To achieve full functionality, users must manually install several additional libraries as listed below.**
 
 ## Prerequisites (Linux)
